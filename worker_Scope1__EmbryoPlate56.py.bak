@@ -149,7 +149,7 @@ if __name__ == '__main__':
     items = [(set_,ifov)for set_ in ['_D7','_D9','_D13','_D14','_D16'][::-1]#['_set1','_set2','_set3']
                         for ifov in range(1000)]
                         
-    main_f(['_D16',59])
+    #main_f(['_D16',59])
     #_,flds,_ = get_files(['_D16',59])
     #for fld in flds:
     #    print(fld)
