@@ -2514,16 +2514,19 @@ def get_scores(dec,plt_val=True,gene='Ptbp1'):
         plt.hist(scoreA[~is_good_gn],density=True,bins=100,alpha=0.5,label='blanks');
         plt.legend()
         
-def load_segmentation(dec,nexpand=5):
+def load_segmentation(dec):
     dec.fl_dapi = glob.glob(dec.save_folder+os.sep+'Segmentation'+os.sep+dec.fov+'*'+dec.set_+'*.npz')[0]
     dic = np.load(dec.fl_dapi)
     im_segm = dic['segm']
     dec.shape = dic['shape']
-    dec.im_segm_=stitch3D(im_segm,niter=5,th_int=0.75)
-    dec.im_segm_ = expand_segmentation(dec.im_segm_,nexpand=nexpand)
+    dec.im_segm_=stitch3d_new(im_segm,minsz = 200,maxsz = 1000,th_int=0.66,th_cover=0.8,th_max_subcell=0.66,nexpand = 5)
+    #dec.im_segm_ = expand_segmentation(dec.im_segm_,nexpand=nexpand)
     drift_fl = dec.save_folder+os.sep+'drift_'+dec.fov+'--'+dec.set_+'.pkl'
     drifts,fls,fov = pickle.load(open(drift_fl,'rb'))
+    dec.fls_drifts = fls
     dec.drifts = np.array([drft[0]for drft in drifts])
+    dec.fld_ref = dec.fls_drifts[np.argmin([np.sum(np.abs(drft[0]))for drft in dec.drifts])]
+    dec.fl_ref = dec.fld_ref+os.sep+dec.fov.replace('.zarr','')+'.zarr'
     dec.drifts = drifts
     tag_dapi = os.path.basename(dec.fl_dapi).split('--')[1]
     tags_drifts = [os.path.basename(fld)for fld in fls]
@@ -2807,7 +2810,9 @@ def get_xyfov(dec):
     fl = fls[0]+os.sep+dec.fov.split('.')[0]+'.xml'
     txt = open(fl,'r').read()
     dec.xfov,dec.yfov = eval(txt.split('<stage_position type="custom">')[-1].split('<')[0])
-def save_final_decoding(save_folder,fov,set_,scoresRef,th=-1.5,plt_val=False,
+def save_final_decoding(save_folder,fov,set_,scoresRef,th=-1.5,
+                        tag_save = 'finaldecs_',
+                        plt_val=False,apply_flat=True,
                         tags_smFISH=['Aldh','Sox11'],
                         genes_smFISH=[['Igfbpl1','Aldh1l1','Ptbp1'],['Sox11','Sox2','Dcx']],Hths=None,force=False):
     """
@@ -2815,13 +2820,14 @@ def save_final_decoding(save_folder,fov,set_,scoresRef,th=-1.5,plt_val=False,
     """
     if type(scoresRef) is str: scoresRef = np.load(scoresRef,allow_pickle=True)
     dec = decoder_simple(save_folder,fov,set_)
-    save_fl = dec.save_folder+os.sep+os.sep+'finaldecs_'+dec.fov.split('.')[0]+'--'+dec.set_+'.npz'
+    save_fl = dec.save_folder+os.sep+os.sep+tag_save+dec.fov.split('.')[0]+'--'+dec.set_+'.npz'
     if not os.path.exists(save_fl) or force:
         #print(dec.fov,dec.set_)
         try:
             load_segmentation(dec)
             dec.load_decoded()
-            apply_flat_field(dec)
+            if apply_flat:
+                apply_flat_field(dec)
             apply_fine_drift(dec,plt_val=plt_val)
             
             #for i in range(3):
@@ -2847,22 +2853,27 @@ def save_final_decoding(save_folder,fov,set_,scoresRef,th=-1.5,plt_val=False,
                 ICol = XHfpr[:,:,-2].astype(int)
                 Hths = [np.percentile(XHfpr[ICol==icol][:,-3],15) for icol in np.unique(ICol)]
             
+            XF = XHf[:,[0,1,2,-5,-4,-3,-2,-1,-1,-1,-1]]
+            #zc,xc,yc,bk-7,a-6,habs-5,hn-4,h-3
+            XF[:,-1] = dec.scoreA[keepf]
+            XF[:,-2] = np.where(keepf)[0]
+            mnD = np.mean(np.linalg.norm((XHf[:,np.newaxis]-XHfpr)[:,:,:3],axis=-1),axis=-1)
+            XF[:,-3]=mnD
+            mnH = np.mean(np.abs((XHf[:,np.newaxis]-XHfpr)[:,:,-3]),axis=-1)
+            XF[:,-4]=mnH
+            genesf = dec.gns_names[icodesf]
+            
             ### deal with smFISH
             for tag_smFISH,gns_smFISH in zip(tags_smFISH,genes_smFISH):
                 dec.get_XH_tag(tag=tag_smFISH)#dec.get_XH_tag(tag='Aldh1')
-                Xh = norm_brightness(dec,dec.Xh)
+                if apply_flat:
+                    Xh = norm_brightness(dec,dec.Xh)
+                else:
+                    Xh = dec.Xh
+                
                 tags = [gn+'_smFISH' for gn in gns_smFISH]#['Igfbp_smFISH','Aldh1l1_smFISH','Ptbp1_smFISH']
-                XF = XHf[:,[0,1,2,-5,-4,-3,-2,-1,-1,-1,-1]]
-                #zc,xc,yc,bk-7,a-6,habs-5,hn-4,h-3
-                XF[:,-1] = dec.scoreA[keepf]
-                XF[:,-2] = np.where(keepf)[0]
-                mnD = np.mean(np.linalg.norm((XHf[:,np.newaxis]-XHfpr)[:,:,:3],axis=-1),axis=-1)
-                XF[:,-3]=mnD
-                mnH = np.mean(np.abs((XHf[:,np.newaxis]-XHfpr)[:,:,-3]),axis=-1)
-                XF[:,-4]=mnH
-                genesf = dec.gns_names[icodesf]
-
-                for icol,tag in enumerate(tags):
+                
+                for icol,tag_gn in enumerate(tags):
                     Xh_ = Xh[Xh[:,-2]==icol]
                     Xh_=Xh_[Xh_[:,-3]>Hths[icol]]
                     Xh_=Xh_[:,[0,1,2,-5,-4,-3,-2,-1,-1,-1,-1]]
@@ -2871,7 +2882,7 @@ def save_final_decoding(save_folder,fov,set_,scoresRef,th=-1.5,plt_val=False,
                     Xh_[:,-3]=0
                     Xh_[:,-4]=0
                     XF = np.concatenate([XF,Xh_])
-                    genesf = np.concatenate([genesf,[tag]*len(Xh_)])
+                    genesf = np.concatenate([genesf,[tag_gn]*len(Xh_)])
 
             cell_id,good = get_cell_id(dec,XF)
             XF_ = np.concatenate([XF[good],cell_id[:,np.newaxis]],axis=-1)
@@ -2995,3 +3006,114 @@ def get_psf(im_,th=1000,th_cor = 0.75,delta=3,delta_fit = 7,sxyzP = [15,30,30]):
             F = torch.fft.fftn(ims,dim=[0,1,2])
             psf = torch.mean(torch.fft.ifftn(F*expK,dim=[0,1,2]).real,-1)
             return psf.cpu().detach().numpy()
+            
+            
+        
+def get_connected_cells(im1,im2,th_int = 0.5):
+    im1_ = np.array(im1,dtype=int)
+    N1max = np.max(im1)+1
+    im2_ = (np.array(im2,dtype=int))*N1max
+    
+    c1,cts1 = np.unique(im1_,return_counts=True)
+    dic_c1 = {c_:ct_ for c_,ct_ in zip(c1,cts1)}
+    c2,cts2 = np.unique(im2_,return_counts=True)
+    dic_c2 = {c_:ct_ for c_,ct_ in zip(c2,cts2)}
+
+    iint,cts = np.unique(im1_+im2_,return_counts=True)
+    dic_int = {}
+    for iint_,ct in zip(iint,cts):
+        c1 = iint_%N1max
+        c2 = iint_-c1
+        c2_ = c2//N1max
+        if c1>0 and c2>0:
+            dic_int[(c1,c2_)]=(ct/dic_c1[c1],ct/dic_c2[c2])
+    edges = []
+    dic_covered1,dic_covered2 = {},{}
+    for (c1,c2) in dic_int:
+        ic1,ic2 = dic_int[(c1,c2)]
+        if ic1>th_int or ic2>th_int:
+            start = dic_covered1.get(c1,[0,0,0])
+            dic_covered1[c1] = [start[0]+ic1,max(start[1],ic1),start[2]+1]
+            start = dic_covered2.get(c2,[0,0,0])
+            dic_covered2[c2] = [start[0]+ic2,max(start[1],ic2),start[2]+1]
+            edges.append((c1,c2))
+    return edges,dic_covered1,dic_covered2
+import networkx as nx
+def get_connected_components(im_segm,th_int=0.75):
+    graph = nx.Graph()
+    for iim in np.arange(len(im_segm)):
+        edges = [((c1,iim),(c1,iim))for c1 in np.unique(im_segm[iim]) if c1>0]
+        graph.add_edges_from(edges)
+    for iim in np.arange(len(im_segm)-1):
+        edges,_,_ = get_connected_cells(im_segm[iim],im_segm[iim+1],th_int = th_int)
+        edges = [((c1,iim),(c2,iim+1))for c1,c2 in edges]
+        graph.add_edges_from(edges)
+    components = list(nx.connected_components(graph))
+    return components
+def stitch3d(im_segm,th_int=0.75):
+    im_segm_ = im_segm.copy()
+    components = get_connected_components(im_segm_,th_int=th_int)
+    dic_nue = {cell:(ic+1) for ic,c in enumerate(components) for cell in c}
+    nue = list(dic_nue.keys())
+    nuear = np.array(nue)
+    for ifr in np.arange(len(im_segm_)):
+        cells_fr = nuear[nuear[:,-1]==ifr,0]
+        cells_to = [dic_nue[(c,ifr)] for c in cells_fr]
+        im_rep = im_segm_[ifr].copy()
+        buckets = np.zeros(np.max(cells_fr)+1,dtype=int)
+        buckets[cells_fr]=cells_to
+        im_segm_[ifr] = buckets[im_segm_[ifr]]
+    return im_segm_
+def get_im_segm_u(im_segm):
+    im_segm_u = np.array(im_segm,dtype=int)
+    for ifr in np.arange(1,len(im_segm_u)):
+        im_segm_u[ifr]=im_segm_u[ifr]+(np.max(im_segm_u[ifr-1])+1)
+    im_segm_u[im_segm==0]=0
+    return im_segm_u
+def replace_mat(mat,vals_fr,vals_to):
+    vmax = np.max(mat)+1
+    vals = np.arange(vmax)
+    vals[vals_fr]=vals_to
+    return vals[mat]
+def get_over_segmented_cells(dic_covered,th_cover = 0.8, th_max_subcell = 0.75):
+    keys = np.array(list(dic_covered.keys()))
+    vals = np.array(list(dic_covered.values()))
+    remove_cells = keys[(vals[:,-1]>1)&(vals[:,0]>th_cover)&(vals[:,1]<th_max_subcell)]
+    return remove_cells
+
+def stitch3d_new(im_segm,minsz = 600/3,maxsz=600*3,th_int=0.75,th_cover=0.8,th_max_subcell=0.66,nexpand = 5):
+    im_segm_u = get_im_segm_u(im_segm)
+    vols = nd.sum(im_segm_u>0,im_segm_u,np.unique(im_segm_u))
+    remove_cells = np.array(list(np.where(vols<minsz)[0])+list(np.where(vols>maxsz)[0]))
+    im_segm_u = replace_mat(im_segm_u,remove_cells,0)
+    ### remove cells that seem too large
+    remove_cells=[]
+    for delta in [1,2,3]:
+        for ifr in np.arange(len(im_segm_u)-delta):
+            edges,dic_covered1,dic_covered2= get_connected_cells(im_segm_u[ifr],im_segm_u[ifr+delta],th_int=th_int)
+            dic_covered1.update(dic_covered2)
+            remove_cells_ = get_over_segmented_cells(dic_covered1,th_cover = th_cover, th_max_subcell = th_max_subcell)
+            remove_cells.extend(remove_cells_)
+    remove_cells = np.unique(remove_cells)
+    im_segm_u_ = im_segm_u
+    if len(remove_cells):
+        im_segm_u_ = replace_mat(im_segm_u,remove_cells,0)
+    #im_segm_u_exp = expand_segmentation(im_segm_u_,nexpand=5)
+
+    ### stitch things
+    edges_all = []
+    for delta in [1,2,3]:
+        for ifr in np.arange(len(im_segm_u_)-delta):
+            edges,dic_covered1,dic_covered2= get_connected_cells(im_segm_u_[ifr],im_segm_u_[ifr+delta],th_int=0.75)
+            edges_all.extend(edges)
+    ucells = np.unique(im_segm_u_)
+    for ucell in ucells:
+        if ucell>0:
+            edges_all.append((ucell,ucell))
+    graph = nx.Graph()
+    graph.add_edges_from(edges_all)
+    components = list(nx.connected_components(graph))
+    cfr,cto = zip(*[(c,ic+1) for ic,cs in enumerate(components) for c in cs])
+    im_segm_u__ = replace_mat(im_segm_u_,np.array(cfr),np.array(cto))
+    im_segm_u_exp = expand_segmentation(im_segm_u__,nexpand=nexpand)
+    return im_segm_u_exp
