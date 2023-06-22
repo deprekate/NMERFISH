@@ -1,10 +1,10 @@
-#activate cellpose&&python "C:\Scripts\NMERFISH\worker_Scope1__EmbryoPlate56.py"
+#activate napari&&python "C:\Scripts\NMERFISH\worker_Scope1__EmbryoPlateE2.py"
 from multiprocessing import Pool, TimeoutError
 import time,sys
 import os,sys,numpy as np
 
 master_analysis_folder = r'C:\Scripts\NMERFISH'
-library_file = master_analysis_folder+r'\codebooks\blank_codebook_Mahsa_DevP5P6-code_color2__comb16-4-4.csv'
+library_file = master_analysis_folder+r'\codebooks\blank_codebook_Mahsa_DevEP2-code_color2__comb16-4-4.csv'
 psf_file = master_analysis_folder+r'\psfs\psf_750_Scope1_embryo_big_final.npy'
 sys.path.append(master_analysis_folder)
 from ioMicro import *
@@ -99,12 +99,11 @@ def get_iH(fld):
         return int(os.path.basename(fld).split('_')[0][1:])
     except:
         return np.inf
-def get_files(set_ifov,iHm=16*2+1,iHM=16*3):
+def get_files(set_ifov,iHm=16*5+1,iHM=16*6):
     
     
-    save_folder =r'\\192.168.0.6\bbfishjoy4extra\MERFISH_AnalysisP56'
+    save_folder =r'\\192.168.0.6\bbfishjoy4extra\MERFISH_AnalysisPE2'
     if not os.path.exists(save_folder): os.makedirs(save_folder)
-    
     set_,ifov = set_ifov
     
     all_flds = glob.glob(r'\\192.168.0.6\bbfishjoy4\CGBB_embryo_4_28_2023\H*')
@@ -119,7 +118,8 @@ def get_files(set_ifov,iHm=16*2+1,iHM=16*3):
     
     fovs_fl = save_folder+os.sep+'fovs__'+set_+'.npy'
     if not os.path.exists(fovs_fl):
-        fls = glob.glob(all_flds[0]+os.sep+'*.zarr')
+        all_flds_ = [fld for fld in all_flds if 'lowMER' not in os.path.basename(fld)]
+        fls = glob.glob(all_flds_[0]+os.sep+'*.zarr')
         fovs = np.sort([os.path.basename(fl) for fl in fls])
         np.save(fovs_fl,fovs)
     else:
