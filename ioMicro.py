@@ -3120,7 +3120,7 @@ def stitch3d_new(im_segm,minsz = 600/3,maxsz=600*3,th_int=0.75,th_cover=0.8,th_m
     return im_segm_u_exp
 def new_segmentation(fl =r'\\192.168.0.100\bbfish100\DCBBL1_4week_6_2_2023\H1_MER_set1\Conv_zscan__030.zarr',
                      psf_file = '\\\\192.168.0.100\\bbfish100\\DCBBL1_4week_6_2_2023\\MERFISH_Analysis\\psf_750_Scope3_final.npy',
-                     p1=-500,p99=1500,mean_dapi = 3000,sdapi = 100,
+                     p1=-500,p99=1500,mean_dapi = None,sdapi = 100,
                     save_folder = r'\\192.168.0.100\bbfish100\DCBBL1_4week_6_2_2023\MERFISH_Analysis',redo=False,plt_val=False):
 
     segm_folder = save_folder+os.sep+'Segmentation'
@@ -3150,7 +3150,9 @@ def new_segmentation(fl =r'\\192.168.0.100\bbfish100\DCBBL1_4week_6_2_2023\H1_ME
                                                  progress=True)
 
         for ifr in range(len(masks)):
-            means = nd.mean(imd_[ifr],masks[ifr],np.unique(masks[ifr]))
+            means = nd.mean(np.clip(imd_[ifr],0,np.max(imd_[ifr])),masks[ifr],np.unique(masks[ifr]))
+            st = 5
+            if mean_dapi is None: mean_dapi = (st*means[0]+np.median(means[1:]))/(st+1)
             bad_cells = np.where(means<mean_dapi)[0]
             masks[ifr] = replace_mat(masks[ifr],bad_cells,0)
         if plt_val:
