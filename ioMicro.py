@@ -2810,7 +2810,7 @@ def get_xyfov(dec):
     fl = fls[0]+os.sep+dec.fov.split('.')[0]+'.xml'
     txt = open(fl,'r').read()
     dec.xfov,dec.yfov = eval(txt.split('<stage_position type="custom">')[-1].split('<')[0])
-def save_final_decoding(save_folder,fov,set_,scoresRef,th=-1.5,
+def save_final_decoding(save_folder,fov,set_,scoresRef,th=-1.5,ncols=3,
                         tag_save = 'finaldecs_',
                         plt_val=False,apply_flat=True,
                         tags_smFISH=['Aldh','Sox11'],
@@ -2833,6 +2833,7 @@ def save_final_decoding(save_folder,fov,set_,scoresRef,th=-1.5,
             #for i in range(3):
             #    apply_brightness_correction(dec)
             #get_scores(dec,plt_val=plt_val)
+            dec.ncols=ncols
             get_score_withRef(dec,scoresRef,plt_val=plt_val,gene=None,iSs = None)
             dec.th=th
             #plot_1gene(dec,gene='Gad1',viewer = None)
@@ -3117,3 +3118,47 @@ def stitch3d_new(im_segm,minsz = 600/3,maxsz=600*3,th_int=0.75,th_cover=0.8,th_m
     im_segm_u__ = replace_mat(im_segm_u_,np.array(cfr),np.array(cto))
     im_segm_u_exp = expand_segmentation(im_segm_u__,nexpand=nexpand)
     return im_segm_u_exp
+def new_segmentation(fl =r'\\192.168.0.100\bbfish100\DCBBL1_4week_6_2_2023\H1_MER_set1\Conv_zscan__030.zarr',
+                     psf_file = '\\\\192.168.0.100\\bbfish100\\DCBBL1_4week_6_2_2023\\MERFISH_Analysis\\psf_750_Scope3_final.npy',
+                     p1=-500,p99=1500,mean_dapi = None,sdapi = 100,
+                    save_folder = r'\\192.168.0.100\bbfish100\DCBBL1_4week_6_2_2023\MERFISH_Analysis',redo=False,plt_val=False):
+
+    segm_folder = save_folder+os.sep+'Segmentation'
+    if not os.path.exists(segm_folder): os.makedirs(segm_folder)
+    fl_dapi = fl
+    save_fl  = segm_folder+os.sep+os.path.basename(fl_dapi).split('.')[0]+'--'+os.path.basename(os.path.dirname(fl_dapi))+'--dapi_segm.npz'
+    if redo or (not os.path.exists(save_fl)):
+    
+        im = read_im(fl)
+        im_dapi = np.array(im[-1],dtype=np.float32)
+        imd = im_dapi
+        if psf_file is not None:
+            psf = np.load(psf_file)
+            imd = full_deconv(im_dapi,s_=500,pad=100,psf=psf,parameters={'method': 'wiener', 'beta': 0.01},gpu=True,force=False)
+        im_dapi_ = norm_slice(imd,s=sdapi)
+
+
+        img = np.array(np.clip((im_dapi_[::3,::4,::4]-p1)/(p99-p1),0,1),dtype=np.float32)
+        imd_ = imd[::3,::4,::4]
+
+        from cellpose import models, io,utils
+        from scipy import ndimage
+        model = models.Cellpose(gpu=True, model_type='cyto')
+        masks, flows, styles, diams = model.eval(img,z_axis=0, diameter=20, channels=[0,0],
+                                                 flow_threshold=-10,cellprob_threshold=-10,normalize=False,
+                                                 do_3D=False,stitch_threshold=0.,
+                                                 progress=True)
+
+        for ifr in range(len(masks)):
+            means = nd.mean(np.clip(imd_[ifr],0,np.max(imd_[ifr])),masks[ifr],np.unique(masks[ifr]))
+            st = 5
+            if mean_dapi is None: mean_dapi = (st*means[0]+np.median(means[1:]))/(st+1)
+            bad_cells = np.where(means<mean_dapi)[0]
+            masks[ifr] = replace_mat(masks[ifr],bad_cells,0)
+        if plt_val:
+            import napari
+            v = napari.view_image(img)
+            v.add_labels(masks)
+        shape = np.array(im[-1].shape)
+        np.savez_compressed(save_fl,segm = masks,shape = shape)
+    return save_fl

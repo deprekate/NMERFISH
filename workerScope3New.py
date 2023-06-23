@@ -1,10 +1,10 @@
 
-#activate cellpose&&python C:\Users\BintuLabUser\Scope3AnalysisScripts\MERFISH_spot_analysis\Analysis_1500gns_MERFISH\workerScope3New.py
+#activate cellpose&&python C:\Scripts\NMERFISH\workerScope3New.py
 
-master_analysis_folder = r'C:\Users\Scope3\ScriptsScope3\MERFISH_SCOPE2\Analysis_1500gns_MERFISH'
-lib_fl = r'\\192.168.0.10\bbfishdc13\codebook_0_New_DCBB-300_MERFISH_encoding_2_21_2023.csv'
+master_analysis_folder = r'C:\Scripts\NMERFISH'
+lib_fl = r'C:\Scripts\NMERFISH\codebooks\codebook_0_New_DCBB-300_MERFISH_encoding_2_21_2023.csv'
 ### Did you compute PSF and median flat field images?
-psf_file = r'psf_750_Scope3_final.npy'
+psf_file = r'C:\Scripts\NMERFISH\psfs\psf_750_Scope3_final.npy'
 master_data_folder = r'\\192.168.0.100\bbfish100\DCBBL1_4week_6_2_2023'
 
 
@@ -84,7 +84,7 @@ def main_do_compute_fits(save_folder,fld,fov,icol,save_fl,psf):
     np.savez_compressed(save_fl,Xh=Xh)
 def compute_fits(save_folder,fov,all_flds,redo=False,ncols=4,
                 psf_file = psf_file,try_mode=True):
-    psf = np.load(save_folder+os.sep+psf_file)
+    psf = np.load(psf_file)
     
     for fld in tqdm(all_flds):
         for icol in range(ncols-1):
