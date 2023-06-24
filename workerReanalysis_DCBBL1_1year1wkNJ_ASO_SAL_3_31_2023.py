@@ -56,25 +56,25 @@ def main_f_compute(ifov):
 def main_f(ifov,force=False,try_mode=True):
     fl_tag = save_folder+os.sep+str(ifov).zfill(5)+'_recomputed.txt'
     if not os.path.exists(fl_tag) or force:
-    if try_mode:
-        try:
+        if try_mode:
+            try:
+                main_f_compute(ifov)
+                fid  = open(fl_tag,'w')
+                fid.close()
+            except:
+                print("Failed",ifov)
+        else:
             main_f_compute(ifov)
             fid  = open(fl_tag,'w')
             fid.close()
-        except:
-            print("Failed",ifov)
-    else:
-        main_f_compute(ifov)
-        fid  = open(fl_tag,'w')
-        fid.close()
     return ifov
     
     
 if __name__ == '__main__':
 
     items = list(range(1500))
-    main_f(615)
-    if True:
+    main_f(615,force=False,try_mode=False)
+    if False:
         with Pool(processes=10) as pool:
             print('starting pool')
             result = pool.map(main_f, items)
