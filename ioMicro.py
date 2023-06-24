@@ -2302,10 +2302,14 @@ class decoder_simple():
         import time
         start= time.time()
         self.decoded_fl = self.save_folder+os.sep+'decoded_'+self.fov.split('.')[0]+'--'+self.set_+'.npz'
-        self.XH_pruned = np.load(self.decoded_fl)['XH_pruned']
-        self.icodesN = np.load(self.decoded_fl)['icodesN']
-        self.gns_names = np.load(self.decoded_fl)['gns_names']
-        print("Loaded decoded:",start-time.time())
+        if os.path.exists(self.decoded_fl):
+            self.XH_pruned = np.load(self.decoded_fl)['XH_pruned']
+            self.icodesN = np.load(self.decoded_fl)['icodesN']
+            self.gns_names = np.load(self.decoded_fl)['gns_names']
+            print("Loaded decoded:",start-time.time())
+            return True
+        else:
+            return False
     def get_is_bright(self,th_dic = {0:1500,1:1500,2:750},get_stats=True):
         self.th_dic = th_dic
         gns_names,icodesN,XH_pruned = self.gns_names,self.icodesN,self.XH_pruned
@@ -2383,6 +2387,7 @@ def apply_fine_drift(dec,plt_val=True,npts=50000):
     bad_igns = [ign for ign,gn in enumerate(dec.gns_names) if 'blank' in gn.lower()]
     good_igns = [ign for ign,gn in enumerate(dec.gns_names) if 'blank' not in gn.lower()]
     is_good_gn = np.in1d(dec.icodesN,good_igns)
+    allR = dec.XH_pruned[:,:,-1].astype(int)
     XHG = dec.XH_pruned[is_good_gn]
     
     RG = XHG[:,:,-1].astype(int)
@@ -2400,7 +2405,9 @@ def apply_fine_drift(dec,plt_val=True,npts=50000):
         XHFinR[(RF==iR)]=np.nan
         drift = np.mean(np.nanmean(XHFiR[:,:,:3],axis=1)-np.nanmean(XHFinR[:,:,:3],axis=1),axis=0)
         dic_fine_drift[iR]=drift
-    drift_arr = np.array([dic_fine_drift[iR] for iR in iRs])
+    drift_arr = np.zeros([np.max(allR)+1,3])
+    for iR in iRs:
+        drift_arr[iR]=dic_fine_drift[iR]
     if plt_val:
         ncols = len(np.unique(XHG[:,:,-2]))
         X1 = np.array([dic_fine_drift[iR] for iR in iRs[0::ncols]])
@@ -2417,6 +2424,7 @@ def apply_fine_drift(dec,plt_val=True,npts=50000):
     dec.drift_arr = drift_arr
     R = dec.XH_pruned[:,:,-1].astype(int)#
     dec.XH_pruned[:,:,:3] -= drift_arr[R]
+
 def apply_brightness_correction(dec,plt_val=True,npts=50000):
     bad_igns = [ign for ign,gn in enumerate(dec.gns_names) if 'blank' in gn.lower()]
     good_igns = [ign for ign,gn in enumerate(dec.gns_names) if 'blank' not in gn.lower()]
@@ -2515,7 +2523,11 @@ def get_scores(dec,plt_val=True,gene='Ptbp1'):
         plt.legend()
         
 def load_segmentation(dec):
-    dec.fl_dapi = glob.glob(dec.save_folder+os.sep+'Segmentation'+os.sep+dec.fov+'*'+dec.set_+'*.npz')[0]
+    fls_ =  glob.glob(dec.save_folder+os.sep+'Segmentation'+os.sep+dec.fov+'*'+dec.set_+'*.npz')
+    if len(fls_)==0:
+        return 0
+    dec.fl_dapi =fls_[0]
+    #dec.fl_dapi = glob.glob(dec.save_folder+os.sep+'Segmentation'+os.sep+dec.fov+'*'+dec.set_+'*.npz')[0]
     dic = np.load(dec.fl_dapi)
     im_segm = dic['segm']
     dec.shape = dic['shape']
@@ -2814,7 +2826,7 @@ def save_final_decoding(save_folder,fov,set_,scoresRef,th=-1.5,ncols=3,
                         tag_save = 'finaldecs_',
                         plt_val=False,apply_flat=True,
                         tags_smFISH=['Aldh','Sox11'],
-                        genes_smFISH=[['Igfbpl1','Aldh1l1','Ptbp1'],['Sox11','Sox2','Dcx']],Hths=None,force=False):
+                        genes_smFISH=[['Igfbpl1','Aldh1l1','Ptbp1'],['Sox11','Sox2','Dcx']],Hths=None,force=False,try_mode=True):
     """
     This loads the decoded points renormalizes them and picks the most confident points
     """
@@ -2823,9 +2835,12 @@ def save_final_decoding(save_folder,fov,set_,scoresRef,th=-1.5,ncols=3,
     save_fl = dec.save_folder+os.sep+os.sep+tag_save+dec.fov.split('.')[0]+'--'+dec.set_+'.npz'
     if not os.path.exists(save_fl) or force:
         #print(dec.fov,dec.set_)
-        try:
+        def main_subf(dec,save_fl,save_folder,fov,set_,scoresRef,th,ncols,plt_val,apply_flat,tags_smFISH,genes_smFISH,Hths,force):
             load_segmentation(dec)
-            dec.load_decoded()
+            loaded = dec.load_decoded()
+            if not loaded:
+                print(save_fl, "Did not have a valid decoded file.")
+                return None
             if apply_flat:
                 apply_flat_field(dec)
             apply_fine_drift(dec,plt_val=plt_val)
@@ -2912,9 +2927,13 @@ def save_final_decoding(save_folder,fov,set_,scoresRef,th=-1.5,ncols=3,
 
             np.savez_compressed(save_fl,XF=XF_.astype(np.float32),
                                 genes = genesf_,cellinfo=cellinfo.astype(np.float32),header_cells=header_cells,header=header)
-        except:
-            print("Failed",dec.fov,dec.set_)
-            
+        if try_mode:
+            try:
+                main_subf(dec,save_fl,save_folder,fov,set_,scoresRef,th,ncols,plt_val,apply_flat,tags_smFISH,genes_smFISH,Hths,force)
+            except:
+                print("Failed",dec.fov,dec.set_)
+        else:
+            main_subf(dec,save_fl,save_folder,fov,set_,scoresRef,th,ncols,plt_val,apply_flat,tags_smFISH,genes_smFISH,Hths,force)
             
 def plot_gene_mosaic_cells(df,cell_df,gene,plt_fov=False,pixel_size = 0.10833*4):
     xcells = cell_df['xc']*pixel_size+cell_df['yfov']
@@ -3072,14 +3091,18 @@ def get_im_segm_u(im_segm):
     im_segm_u[im_segm==0]=0
     return im_segm_u
 def replace_mat(mat,vals_fr,vals_to):
-    vmax = np.max(mat)+1
-    vals = np.arange(vmax)
-    vals[vals_fr]=vals_to
-    return vals[mat]
+    if len(vals_fr)>0:
+        vmax = np.max(mat)+1
+        vals = np.arange(vmax)
+        vals[vals_fr]=vals_to
+        return vals[mat]
+    return mat
 def get_over_segmented_cells(dic_covered,th_cover = 0.8, th_max_subcell = 0.75):
     keys = np.array(list(dic_covered.keys()))
     vals = np.array(list(dic_covered.values()))
-    remove_cells = keys[(vals[:,-1]>1)&(vals[:,0]>th_cover)&(vals[:,1]<th_max_subcell)]
+    remove_cells = []
+    if len(vals)>0:
+        remove_cells = keys[(vals[:,-1]>1)&(vals[:,0]>th_cover)&(vals[:,1]<th_max_subcell)]
     return remove_cells
 
 def stitch3d_new(im_segm,minsz = 600/3,maxsz=600*3,th_int=0.75,th_cover=0.8,th_max_subcell=0.66,nexpand = 5):
@@ -3114,8 +3137,11 @@ def stitch3d_new(im_segm,minsz = 600/3,maxsz=600*3,th_int=0.75,th_cover=0.8,th_m
     graph = nx.Graph()
     graph.add_edges_from(edges_all)
     components = list(nx.connected_components(graph))
-    cfr,cto = zip(*[(c,ic+1) for ic,cs in enumerate(components) for c in cs])
-    im_segm_u__ = replace_mat(im_segm_u_,np.array(cfr),np.array(cto))
+    im_segm_u__ = im_segm_u_
+    if len(components)>0:
+        cfr,cto = zip(*[(c,ic+1) for ic,cs in enumerate(components) for c in cs])
+        im_segm_u__ = replace_mat(im_segm_u_,np.array(cfr),np.array(cto))
+    
     im_segm_u_exp = expand_segmentation(im_segm_u__,nexpand=nexpand)
     return im_segm_u_exp
 def new_segmentation(fl =r'\\192.168.0.100\bbfish100\DCBBL1_4week_6_2_2023\H1_MER_set1\Conv_zscan__030.zarr',
@@ -3162,3 +3188,12 @@ def new_segmentation(fl =r'\\192.168.0.100\bbfish100\DCBBL1_4week_6_2_2023\H1_ME
         shape = np.array(im[-1].shape)
         np.savez_compressed(save_fl,segm = masks,shape = shape)
     return save_fl
+def check_image(dec,tag = 'H16_'):
+    drifts,flds,fov_ = np.load(dec.drift_fl,allow_pickle=True)
+    dec.drifts,dec.flds,dec.fov_ = drifts,flds,fov_
+    print("Found files for fov:",fov_,flds)
+    fld_ = [fld for fld in flds if tag in os.path.basename(fld)][0]
+    im  = read_im(fld_+os.sep+fov_)
+    import napari
+    v = napari.view_image(im)
+    return v
