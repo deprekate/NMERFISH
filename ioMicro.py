@@ -2720,7 +2720,10 @@ def apply_flat_field(dec,tag='med_col_raw'):
     save_folder=dec.save_folder#r'\\192.168.0.10\bbfishdc13\DCBBL1_3_2_2023\MERFISH_Analysis'
     immeds = []
     for icol in range(dec.ncols):
-        dic = np.load(save_folder+os.sep+tag+str(icol)+'.npz')
+        fl_med = save_folder+os.sep+tag+str(icol)+'.npz'
+        if not os.path.exists(fl_med):
+            fl_med = fl_med.replace('_raw','')
+        dic = np.load(fl_med)
         immed,resc=dic['im'],dic['resc']
         immeds.append(immed)
     dec.immeds = np.array(immeds)
@@ -3192,8 +3195,41 @@ def check_image(dec,tag = 'H16_'):
     drifts,flds,fov_ = np.load(dec.drift_fl,allow_pickle=True)
     dec.drifts,dec.flds,dec.fov_ = drifts,flds,fov_
     print("Found files for fov:",fov_,flds)
-    fld_ = [fld for fld in flds if tag in os.path.basename(fld)][0]
-    im  = read_im(fld_+os.sep+fov_)
+    if tag=='dapis':
+        #fld_ = [fld for fld in flds if tag in os.path.basename(fld)][0]
+        from dask import array as da
+        im  = da.concatenate([da.roll(read_im(fld_+os.sep+fov_),drft[0],axis=[1,2,3])[np.newaxis]for fld_,drft in zip(flds,drifts)])
+    else:
+        fld_ = [fld for fld in flds if tag in os.path.basename(fld)][0]
+        im  = read_im(fld_+os.sep+fov_)
     import napari
     v = napari.view_image(im)
     return v
+def keep_best_N_for_each_Readout(dec,Nkeep = 15000,iH=-4):
+    if not hasattr(dec,'XH_save'):
+        dec.XH_save = dec.XH.copy()
+    dec.XH = dec.XH_save.copy()
+    iRs = dec.XH[:,-1]
+    iRsu = np.unique(iRs)
+    H = dec.XH[:,iH]
+    keep = []
+    for iR in iRsu:
+        keep_ = np.where(iRs==iR)[0]
+        keep.extend(keep_[np.argsort(H[keep_])[::-1]][:Nkeep])
+    dec.XH = dec.XH[keep]
+def XH_to_ims(dec):
+    XH_ = dec.XH[::3]
+    M = (np.max(XH_[:,1:3],axis=0)+1).astype(int)
+    iRs = XH_[:,-1].astype(int)
+    ims = []
+    for iR in tqdm(np.unique(iRs)):
+        XH = XH_[iRs==iR]
+        H = XH[:,-3]
+        XH = XH[np.argsort(H)]
+        im_ = np.zeros(M,dtype=np.float32)
+        X = XH[:,:3].astype(int)
+        im_[X[:,1],X[:,2]]=H
+        im__ = cv2.blur(im_,(50,50))
+        ims.append(im__)
+    import napari
+    napari.view_image(np.array(ims))
