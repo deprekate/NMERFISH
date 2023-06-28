@@ -2633,6 +2633,10 @@ def load_GFP(dec,th_cor=0.25,th_h=2000,th_d=2,plt_val=True):
         return viewer
         
 def get_cell_id(dec,Xh):
+    if not hasattr(dec,'drift'): 
+        good = np.ones(len(Xh),dtype=bool)
+        cells_ = np.zeros(len(Xh),dtype=int)
+        return cells_,good
     tzxy = dec.drift[0]#dec.drift_dapi
     im_segm = dec.im_segm_
     dec.shapesm = dec.im_segm_.shape
@@ -2825,6 +2829,7 @@ def get_xyfov(dec):
     fl = fls[0]+os.sep+dec.fov.split('.')[0]+'.xml'
     txt = open(fl,'r').read()
     dec.xfov,dec.yfov = eval(txt.split('<stage_position type="custom">')[-1].split('<')[0])
+    
 def save_final_decoding(save_folder,fov,set_,scoresRef,th=-1.5,ncols=3,
                         tag_save = 'finaldecs_',
                         plt_val=False,apply_flat=True,
@@ -2839,7 +2844,7 @@ def save_final_decoding(save_folder,fov,set_,scoresRef,th=-1.5,ncols=3,
     if not os.path.exists(save_fl) or force:
         #print(dec.fov,dec.set_)
         def main_subf(dec,save_fl,save_folder,fov,set_,scoresRef,th,ncols,plt_val,apply_flat,tags_smFISH,genes_smFISH,Hths,force):
-            load_segmentation(dec)
+            nsegm = load_segmentation(dec)
             loaded = dec.load_decoded()
             if not loaded:
                 print(save_fl, "Did not have a valid decoded file.")
@@ -2885,23 +2890,25 @@ def save_final_decoding(save_folder,fov,set_,scoresRef,th=-1.5,ncols=3,
             ### deal with smFISH
             for tag_smFISH,gns_smFISH in zip(tags_smFISH,genes_smFISH):
                 dec.get_XH_tag(tag=tag_smFISH)#dec.get_XH_tag(tag='Aldh1')
-                if apply_flat:
-                    Xh = norm_brightness(dec,dec.Xh)
-                else:
-                    Xh = dec.Xh
-                
-                tags = [gn+'_smFISH' for gn in gns_smFISH]#['Igfbp_smFISH','Aldh1l1_smFISH','Ptbp1_smFISH']
-                
-                for icol,tag_gn in enumerate(tags):
-                    Xh_ = Xh[Xh[:,-2]==icol]
-                    Xh_=Xh_[Xh_[:,-3]>Hths[icol]]
-                    Xh_=Xh_[:,[0,1,2,-5,-4,-3,-2,-1,-1,-1,-1]]
-                    Xh_[:,-1]=0
-                    Xh_[:,-2]=-1
-                    Xh_[:,-3]=0
-                    Xh_[:,-4]=0
-                    XF = np.concatenate([XF,Xh_])
-                    genesf = np.concatenate([genesf,[tag_gn]*len(Xh_)])
+                if len(dec.Xh.shape)>1:
+                    if len(dec.Xh)>0:
+                        if apply_flat:
+                            Xh = norm_brightness(dec,dec.Xh)
+                        else:
+                            Xh = dec.Xh
+
+                        tags = [gn+'_smFISH' for gn in gns_smFISH]#['Igfbp_smFISH','Aldh1l1_smFISH','Ptbp1_smFISH']
+
+                        for icol,tag_gn in enumerate(tags):
+                            Xh_ = Xh[Xh[:,-2]==icol]
+                            Xh_=Xh_[Xh_[:,-3]>Hths[icol]]
+                            Xh_=Xh_[:,[0,1,2,-5,-4,-3,-2,-1,-1,-1,-1]]
+                            Xh_[:,-1]=0
+                            Xh_[:,-2]=-1
+                            Xh_[:,-3]=0
+                            Xh_[:,-4]=0
+                            XF = np.concatenate([XF,Xh_])
+                            genesf = np.concatenate([genesf,[tag_gn]*len(Xh_)])
 
             cell_id,good = get_cell_id(dec,XF)
             XF_ = np.concatenate([XF[good],cell_id[:,np.newaxis]],axis=-1)
@@ -2918,9 +2925,11 @@ def save_final_decoding(save_folder,fov,set_,scoresRef,th=-1.5,ncols=3,
             XF_[:,-2:]=dec.xfov,dec.yfov
             header = ['z','x','y','abs_brightness','cor','brightness','color','mean_bightness_variation','mean_distance_variation',
                       'index_from_XH_pruned','score','cell_id','ifov','iset','xfov','yfov']
+            
+            if not hasattr(dec,'im_segm_'): dec.im_segm_=np.zeros(np.array([30,3000,3000])//4)
             icells,vols = np.unique(dec.im_segm_,return_counts=True)
             cms = np.array(ndimage.center_of_mass(np.ones_like(dec.im_segm_),dec.im_segm_,icells))
-            icells,vols = np.unique(dec.im_segm_,return_counts=True)
+            #icells,vols = np.unique(dec.im_segm_,return_counts=True)
             cms = np.array(ndimage.center_of_mass(np.ones_like(dec.im_segm_),dec.im_segm_,icells))
             cellinfo = cms[:,[0,0,0,1,2,0,0]]
             cellinfo[:,0]=icells
@@ -2937,34 +2946,45 @@ def save_final_decoding(save_folder,fov,set_,scoresRef,th=-1.5,ncols=3,
                 print("Failed",dec.fov,dec.set_)
         else:
             main_subf(dec,save_fl,save_folder,fov,set_,scoresRef,th,ncols,plt_val,apply_flat,tags_smFISH,genes_smFISH,Hths,force)
-            
-def plot_gene_mosaic_cells(df,cell_df,gene,plt_fov=False,pixel_size = 0.10833*4):
+    
+          
+def plot_gene_mosaic_cells(df,cell_df,gene,plt_fov=False,pixel_size = 0.10833*4,th_blank=0.5,
+                           transpose=1,flipx=1,flipy=1,sz_min=1,sz_max=30,nmax=20):
     xcells = cell_df['xc']*pixel_size+cell_df['yfov']
     ycells = cell_df['yc']*pixel_size-cell_df['xfov']
-    Xcells = np.array([xcells,ycells]).T
+
+    Xcells = np.array([xcells*flipx,ycells*flipy][::transpose]).T
     
     cts = np.array(df[gene])#Ptbp1_smFISH
+    
     cts[np.isnan(cts)]=0
-    ncts = np.clip(cts/20,0,1)
-    size = 5+ncts*10
+    ncts = np.clip(cts/nmax,0,1)
+    size = sz_min+ncts*(sz_max-sz_min)
     from matplotlib import cm as cmap
     cols = cmap.coolwarm(ncts)
     import napari
     good_cells = slice(None)
+    
+    
+    blanks = [gn for gn in df.columns if 'blank' in gn]
+    blanks_cts = np.nanmean(df[blanks],axis=-1)
+    good_cells = blanks_cts<th_blank
+    
     XC = -Xcells[good_cells,::-1]
-    viewer = napari.view_points(XC,size=size,face_color=cols[good_cells],name=gene)
+    viewer = napari.view_points(XC,size=size[good_cells],face_color=cols[good_cells],name=gene)
     if plt_fov:
         ifovs = np.array(list(df.index),dtype=int)//10**5
         ifov_unk = np.unique(ifovs)
         Xfov = np.array([np.mean(XC[ifovs==ifov],axis=0)for ifov in ifov_unk])
         features =  {'fov':ifov_unk}
         text = {
-            'string': '{fov:.1f}',
+            'string': '{fov}',
             'size': 20,
             'color': 'gray',
             'translation': np.array([0, 0]),
         }
-        viewer.add_points(Xfov,text=text,features=features)
+        viewer.add_points(Xfov,text=text,features=features,edge_width=0,edge_color=[0,0,0,0])
+    return viewer
 def compute_flat_field_raw(data_fld,save_folder =r'\\192.168.0.6\bbfish1e3\DCBBL1_03_14_2023_big\MERFISH_Analysis',ncols=4):
     zarrs = glob.glob(data_fld+os.sep+'*.zarr')
     for icol in range(ncols):
@@ -3191,14 +3211,15 @@ def new_segmentation(fl =r'\\192.168.0.100\bbfish100\DCBBL1_4week_6_2_2023\H1_ME
         shape = np.array(im[-1].shape)
         np.savez_compressed(save_fl,segm = masks,shape = shape)
     return save_fl
-def check_image(dec,tag = 'H16_'):
+def check_image(dec,tag = '_MER_'):
     drifts,flds,fov_ = np.load(dec.drift_fl,allow_pickle=True)
     dec.drifts,dec.flds,dec.fov_ = drifts,flds,fov_
     print("Found files for fov:",fov_,flds)
-    if tag=='dapis':
+    if True:
         #fld_ = [fld for fld in flds if tag in os.path.basename(fld)][0]
         from dask import array as da
-        im  = da.concatenate([da.roll(read_im(fld_+os.sep+fov_),drft[0],axis=[1,2,3])[np.newaxis]for fld_,drft in zip(flds,drifts)])
+        im  = da.concatenate([da.roll(read_im(fld_+os.sep+fov_),drft[0],axis=[1,2,3])[np.newaxis]for fld_,drft in zip(flds,drifts)
+                                                                         if tag in os.path.basename(fld_)])
     else:
         fld_ = [fld for fld in flds if tag in os.path.basename(fld)][0]
         im  = read_im(fld_+os.sep+fov_)
@@ -3233,3 +3254,101 @@ def XH_to_ims(dec):
         ims.append(im__)
     import napari
     napari.view_image(np.array(ims))
+    
+def get_Xcells(cell_df,pixel_size = 0.10833*4,transpose=1,flipx=1,flipy=1):
+    xcells = cell_df['xc']*pixel_size+cell_df['yfov']
+    ycells = cell_df['yc']*pixel_size-cell_df['xfov']
+    Xcells = np.array([xcells*flipx,ycells*flipy][::transpose]).T
+    return Xcells
+def plot_cluster_scdata(scdata,cmap,clusters=[1,2],transpose=1,flipx=1,flipy=1):
+    import matplotlib.pyplot as plt
+    plt.figure(figsize=(15, 15), facecolor="black")
+
+    from matplotlib import pylab as plt
+    x,y = (scdata.obsm['X_spatial']*[flipx,flipy])[:,::transpose].T
+    #np.unique(scdata.obs["leiden"].astype(np.int))[::-1]
+    plt.scatter(x, y, c='gray', s=5, marker='.')
+    for cluster in clusters:
+        cluster_ = str(cluster)
+        inds = scdata.obs["leiden"] == cluster_
+        x_ = x[inds]
+        y_ = y[inds]
+        col = cmap[int(cluster) % len(cmap)]
+        plt.scatter(x_, y_, c=col, s=30, marker='.',label = cluster_)
+    
+    plt.grid(b=False)
+    plt.axis("off")
+    plt.axis("equal")
+    plt.legend()
+    plt.tight_layout()
+    
+def plot_gene_scdata(scdata2,gene='Sox10',nmax=20,sz_min=5,sz_max=30,transpose=1,flipx=1,flipy=1):
+    Xcells = scdata2.obsm['X_spatial'][:,::transpose]*[flipx,flipy]
+    ign = list(scdata2.var.index).index(gene)
+    scdata2.obsm['X_spatial']
+    if 'X_raw' not in scdata2.obsm:
+        Xnorm = (np.exp(scdata2.X)-1)
+        ncts = np.sum(Xnorm,axis=1)[0]
+        scdata2.obsm['X_raw']=np.round(Xnorm/ncts*np.array(scdata2.obs['total_counts'])[:,np.newaxis])
+    cts = scdata2.obsm['X_raw'][:,ign]
+
+    cts[np.isnan(cts)]=0
+    ncts = np.clip(cts/nmax,0,1)
+    size = sz_min+ncts*(sz_max-sz_min)
+    from matplotlib import cm as cmap
+    cols = cmap.coolwarm(ncts)
+    import napari
+    good_cells = slice(None)
+
+
+    #blanks = [gn for gn in df.columns if 'blank' in gn]
+    #blanks_cts = np.nanmean(df[blanks],axis=-1)
+    #good_cells = blanks_cts<th_blank
+
+    XC = -Xcells[good_cells,::-1]
+    viewer = napari.view_points(XC,size=size[good_cells],face_color=cols[good_cells],name=gene)
+    if False:
+        ifovs = np.array(list(df.index),dtype=int)//10**5
+        ifov_unk = np.unique(ifovs)
+        Xfov = np.array([np.mean(XC[ifovs==ifov],axis=0)for ifov in ifov_unk])
+        features =  {'fov':ifov_unk}
+        text = {
+            'string': '{fov}',
+            'size': 20,
+            'color': 'gray',
+            'translation': np.array([0, 0]),
+        }
+        viewer.add_points(Xfov,text=text,features=features,edge_width=0,edge_color=[0,0,0,0])
+    return viewer
+import pandas as pd
+def get_df__cell_df(save_folder,iset=0):
+    #save_folder = save_folders[1]
+    save_folder_ =save_folder+r'\final_spots'
+    saved_fls = glob.glob(save_folder_+os.sep+'*_cell_df_newCellSeg.pkl')
+    save_fl = saved_fls[iset]
+    #df = pd.read_pickle(save_folder+r'\DCBBL1_3_2_2023_set1-2_df_newCellSeg.pkl')
+    df = pd.read_pickle(save_fl.replace('_cell_df_','_df_'))
+    #cell_df = pd.read_pickle(save_folder+r'\DCBBL1_3_2_2023_set1-2_cell_df_newCellSeg.pkl')
+    cell_df = pd.read_pickle(save_fl)
+    return df,cell_df
+def get_scdata(dfR,cell_dfR,genes_prev=None,th_vol = 2500,pixel_size=0.10833*4):
+    import scanpy as sc
+    genes = [gn for gn in dfR.columns if '_smFISH' not in gn and 'blank' not in gn]
+    if genes_prev is not None:
+        genes = np.intersect1d(genes_prev,genes)
+    dfR_ = dfR[genes].copy()
+    dfR_ = dfR_.replace(np.nan, 0)
+    keep = cell_dfR['volm']>th_vol
+    dfR_ = dfR_.loc[keep]
+    cell_dfR_ = cell_dfR.loc[keep]
+    scdata2 = sc.AnnData(dfR_)
+    scdata2.obsm["X_spatial"] = get_Xcells(cell_dfR_,pixel_size =pixel_size ,transpose=1,flipx=1,flipy=1)
+    scdata2.obsm["X_raw"] = scdata2.X.copy()
+    sc.pp.calculate_qc_metrics(scdata2, percent_top=None, inplace=True)
+    sc.pp.normalize_total(scdata2, target_sum=np.median(scdata2.obs["total_counts"]))
+    sc.pp.log1p(scdata2)
+    sc.pp.neighbors(scdata2,use_rep = "X")  #metric='correlation', use_rep = "X"
+    #sc.tl.leiden(scdata2, resolution=2) 
+    #sc.tl.umap(scdata2,random_state=9)
+    sc.pp.pca(scdata2)
+    return scdata2

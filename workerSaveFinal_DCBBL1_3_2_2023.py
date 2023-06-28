@@ -13,7 +13,7 @@ sys.path.append(master_analysis_folder)
 from ioMicro import *
 
 
-def main_f(ifov,force=False):
+def main_f(ifov,force=True):
     fovs_sets_fl = save_folder+os.sep+'fl_fovs_sets.npy'
     if os.path.exists(fovs_sets_fl):
         elems = np.load(fovs_sets_fl)
@@ -37,7 +37,7 @@ if __name__ == '__main__':
     items = list(range(1500))
     main_f(30)
     if True:
-        with Pool(processes=10) as pool:
+        with Pool(processes=15) as pool:
             print('starting pool')
             result = pool.map(main_f, items)
 
