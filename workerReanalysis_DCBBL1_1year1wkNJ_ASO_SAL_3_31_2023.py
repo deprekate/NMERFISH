@@ -74,7 +74,7 @@ if __name__ == '__main__':
 
     items = list(range(1500))
     main_f(615,force=False,try_mode=False)
-    if False:
+    if True:
         with Pool(processes=10) as pool:
             print('starting pool')
             result = pool.map(main_f, items)
