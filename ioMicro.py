@@ -2201,7 +2201,7 @@ class decoder_simple():
                 if bit not in dic_bit_to_code: dic_bit_to_code[bit]=[]
                 dic_bit_to_code[bit].append(icd)
         self.dic_bit_to_code = dic_bit_to_code  ### a dictinary in which each bit is mapped to the inde of a code
-    def get_icodes(self,nmin_bits=4,method = 'top4',redo=False,norm_brightness=None,nbits=48):    
+    def get_icodes(self,n_on_bits=4,nmin_bits=None,method = 'top4',redo=False,norm_brightness=None,nbits=48):    
         #### unfold res which is a list of list with clusters of loc.
         
         
@@ -2209,6 +2209,7 @@ class decoder_simple():
 
         import time
         start = time.time()
+        if nmin_bits is None: nmin_bits = n_on_bits
         res = [r for r in res if len(r)>=nmin_bits]
         #rlens = [len(r) for r in res]
         #edges = np.cumsum([0]+rlens)
@@ -2248,14 +2249,14 @@ class decoder_simple():
         if method == 'top4':
             codes = self.codes__
             vals = np.argsort(scores_bits,axis=-1)
-            bcodes = np.sort(vals[:,-4:],axis=-1)
-            base = [nbits**3,nbits**2,nbits**1,nbits**0]
+            bcodes = np.sort(vals[:,-n_on_bits:],axis=-1)
+            base = [nbits**ion for ion in np.arange(n_on_bits)[::-1]]
             bcodes_b = np.sum(bcodes*base,axis=1)
             codes_b = np.sum(np.sort(codes,axis=-1)*base,axis=1)
             icodesN = np.zeros(len(bcodes_b),dtype=int)-1
             for icd,cd in enumerate(codes_b):
                 icodesN[bcodes_b==cd]=icd
-            bad = np.sum(scores_bits>0,axis=-1)<4
+            bad = np.sum(scores_bits>0,axis=-1)<n_on_bits
             
             icodesN[bad]=-1
             igood = np.where(icodesN>-1)[0]
