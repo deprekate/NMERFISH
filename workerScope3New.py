@@ -1,11 +1,12 @@
 
-#activate cellpose&&python C:\Users\BintuLabUser\Scope3AnalysisScripts\MERFISH_spot_analysis\Analysis_1500gns_MERFISH\workerScope3New.py
+#activate cellpose&&python C:\Scripts\NMERFISH\workerScope3New.py
 
-master_analysis_folder = r'C:\Users\Scope3\ScriptsScope3\MERFISH_SCOPE2\Analysis_1500gns_MERFISH'
-lib_fl = r'\\192.168.0.10\bbfishdc13\codebook_0_New_DCBB-300_MERFISH_encoding_2_21_2023.csv'
+master_analysis_folder = r'C:\Scripts\NMERFISH'
+lib_fl = r'C:\Scripts\NMERFISH\codebooks\codebook_0_New_DCBB-300_MERFISH_encoding_2_21_2023.csv'
 ### Did you compute PSF and median flat field images?
-psf_file = r'psf_750_Scope3_final.npy'
+psf_file = r'C:\Scripts\NMERFISH\psfs\psf_750_Scope3_final.npy'
 master_data_folder = r'\\192.168.0.100\bbfish100\DCBBL1_4week_6_2_2023'
+master_data_folder = r'\\192.168.0.21\bbfishdc21\DCBBL1_1year1wkNJ_ASO_SAL_3_31_2023'
 
 
 from multiprocessing import Pool, TimeoutError
@@ -57,15 +58,16 @@ def compute_drift(save_folder,fov,all_flds,set_,redo=False,gpu=False,szz = 25):
         
         pickle.dump([drifts,all_flds,fov],open(drift_fl,'wb'))
         
-def main_do_compute_fits(save_folder,fld,fov,icol,save_fl,psf):
+def main_do_compute_fits(save_folder,fld,fov,icol,save_fl,psf,old_method):
     im_ = read_im(fld+os.sep+fov)
     im__ = np.array(im_[icol],dtype=np.float32)
     
-    if False:
+    if old_method:
         ### previous method
         im_n = norm_slice(im__,s=30)
-        Xh = get_local_max(im_n,500,im_raw=im__,dic_psf=None,delta=1,delta_fit=3,dbscan=True,
-              return_centers=False,mins=None,sigmaZ=1,sigmaXY=1.5)
+        #Xh = get_local_max(im_n,500,im_raw=im__,dic_psf=None,delta=1,delta_fit=3,dbscan=True,
+        #      return_centers=False,mins=None,sigmaZ=1,sigmaXY=1.5)
+        Xh = get_local_maxfast_tensor(im_n,th_fit=500,im_raw=im__,dic_psf=None,delta=1,delta_fit=3,sigmaZ=1,sigmaXY=1.5,gpu=False)
     else:
         ### new method
         fl_med = save_folder+os.sep+'med_col_raw'+str(icol)+'.npy'
@@ -83,8 +85,8 @@ def main_do_compute_fits(save_folder,fld,fov,icol,save_fl,psf):
                                     delta=1,delta_fit=3,sigmaZ=1,sigmaXY=1.5)
     np.savez_compressed(save_fl,Xh=Xh)
 def compute_fits(save_folder,fov,all_flds,redo=False,ncols=4,
-                psf_file = psf_file,try_mode=True):
-    psf = np.load(save_folder+os.sep+psf_file)
+                psf_file = psf_file,try_mode=True,old_method=False):
+    psf = np.load(psf_file)
     
     for fld in tqdm(all_flds):
         for icol in range(ncols-1):
@@ -93,11 +95,11 @@ def compute_fits(save_folder,fov,all_flds,redo=False,ncols=4,
             if not os.path.exists(save_fl) or redo:
                 if try_mode:
                     try:
-                        main_do_compute_fits(save_folder,fld,fov,icol,save_fl,psf)
+                        main_do_compute_fits(save_folder,fld,fov,icol,save_fl,psf,old_method)
                     except:
                         print("Failed",fld,fov,icol)
                 else:
-                    main_do_compute_fits(save_folder,fld,fov,icol,save_fl,psf)
+                    main_do_compute_fits(save_folder,fld,fov,icol,save_fl,psf,old_method)
                     
 def compute_decoding(save_folder,fov,set_,redo=False):
     dec = decoder_simple(save_folder,fov,set_)
@@ -145,25 +147,25 @@ def get_files(set_ifov):
     return save_folder,all_flds,fov
         
 
-def compute_main_f(save_folder,all_flds,fov,set_,ifov,redo_fits,redo_drift,redo_decoding,try_mode):
+def compute_main_f(save_folder,all_flds,fov,set_,ifov,redo_fits,redo_drift,redo_decoding,try_mode,old_method):
     print("Computing fitting on: "+str(fov))
     print(len(all_flds),all_flds)
-    compute_fits(save_folder,fov,all_flds,redo=redo_fits,try_mode=try_mode)
+    compute_fits(save_folder,fov,all_flds,redo=redo_fits,try_mode=try_mode,old_method=old_method)
     print("Computing drift on: "+str(fov))
     compute_drift(save_folder,fov,all_flds,set_,redo=redo_drift)
     compute_decoding(save_folder,fov,set_,redo=redo_decoding)
 
-def main_f(set_ifov,redo_fits = False,redo_drift=False,redo_decoding=False,try_mode=True):
+def main_f(set_ifov,redo_fits = False,redo_drift=False,redo_decoding=False,try_mode=True,old_method=False):
     set_,ifov = set_ifov
     save_folder,all_flds,fov = get_files(set_ifov)
     
     if try_mode:
         try:
-            compute_main_f(save_folder,all_flds,fov,set_,ifov,redo_fits,redo_drift,redo_decoding,try_mode)
+            compute_main_f(save_folder,all_flds,fov,set_,ifov,redo_fits,redo_drift,redo_decoding,try_mode,old_method)
         except:
             print("Failed within the main analysis:")
     else:
-        compute_main_f(save_folder,all_flds,fov,set_,ifov,redo_fits,redo_drift,redo_decoding,try_mode)
+        compute_main_f(save_folder,all_flds,fov,set_,ifov,redo_fits,redo_drift,redo_decoding,try_mode,old_method)
     
     return set_ifov
     

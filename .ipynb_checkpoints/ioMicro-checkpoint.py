@@ -2201,7 +2201,11 @@ class decoder_simple():
                 if bit not in dic_bit_to_code: dic_bit_to_code[bit]=[]
                 dic_bit_to_code[bit].append(icd)
         self.dic_bit_to_code = dic_bit_to_code  ### a dictinary in which each bit is mapped to the inde of a code
+<<<<<<< HEAD
     def get_icodes(self,n_on_bits=4,nmin_bits=None,method = 'top4',redo=False,norm_brightness=None,nbits=48):    
+=======
+    def get_icodes(self,nmin_bits=4,method = 'top4',redo=False,norm_brightness=None,nbits=48):    
+>>>>>>> 2557eff9415d57b778245e173ada9488141a0313
         #### unfold res which is a list of list with clusters of loc.
         
         
@@ -2209,7 +2213,10 @@ class decoder_simple():
 
         import time
         start = time.time()
+<<<<<<< HEAD
         if nmin_bits is None: nmin_bits = n_on_bits
+=======
+>>>>>>> 2557eff9415d57b778245e173ada9488141a0313
         res = [r for r in res if len(r)>=nmin_bits]
         #rlens = [len(r) for r in res]
         #edges = np.cumsum([0]+rlens)
@@ -2249,14 +2256,23 @@ class decoder_simple():
         if method == 'top4':
             codes = self.codes__
             vals = np.argsort(scores_bits,axis=-1)
+<<<<<<< HEAD
             bcodes = np.sort(vals[:,-n_on_bits:],axis=-1)
             base = [nbits**ion for ion in np.arange(n_on_bits)[::-1]]
+=======
+            bcodes = np.sort(vals[:,-4:],axis=-1)
+            base = [nbits**3,nbits**2,nbits**1,nbits**0]
+>>>>>>> 2557eff9415d57b778245e173ada9488141a0313
             bcodes_b = np.sum(bcodes*base,axis=1)
             codes_b = np.sum(np.sort(codes,axis=-1)*base,axis=1)
             icodesN = np.zeros(len(bcodes_b),dtype=int)-1
             for icd,cd in enumerate(codes_b):
                 icodesN[bcodes_b==cd]=icd
+<<<<<<< HEAD
             bad = np.sum(scores_bits>0,axis=-1)<n_on_bits
+=======
+            bad = np.sum(scores_bits>0,axis=-1)<4
+>>>>>>> 2557eff9415d57b778245e173ada9488141a0313
             
             icodesN[bad]=-1
             igood = np.where(icodesN>-1)[0]
@@ -3117,4 +3133,50 @@ def stitch3d_new(im_segm,minsz = 600/3,maxsz=600*3,th_int=0.75,th_cover=0.8,th_m
     cfr,cto = zip(*[(c,ic+1) for ic,cs in enumerate(components) for c in cs])
     im_segm_u__ = replace_mat(im_segm_u_,np.array(cfr),np.array(cto))
     im_segm_u_exp = expand_segmentation(im_segm_u__,nexpand=nexpand)
+<<<<<<< HEAD
     return im_segm_u_exp
+=======
+    return im_segm_u_exp
+def new_segmentation(fl =r'\\192.168.0.100\bbfish100\DCBBL1_4week_6_2_2023\H1_MER_set1\Conv_zscan__030.zarr',
+                     psf_file = '\\\\192.168.0.100\\bbfish100\\DCBBL1_4week_6_2_2023\\MERFISH_Analysis\\psf_750_Scope3_final.npy',
+                     p1=-500,p99=1500,mean_dapi = 3000,sdapi = 100,
+                    save_folder = r'\\192.168.0.100\bbfish100\DCBBL1_4week_6_2_2023\MERFISH_Analysis',redo=False,plt_val=False):
+
+    segm_folder = save_folder+os.sep+'Segmentation'
+    if not os.path.exists(segm_folder): os.makedirs(segm_folder)
+    fl_dapi = fl
+    save_fl  = segm_folder+os.sep+os.path.basename(fl_dapi).split('.')[0]+'--'+os.path.basename(os.path.dirname(fl_dapi))+'--dapi_segm.npz'
+    if redo or (not os.path.exists(save_fl)):
+    
+        im = read_im(fl)
+        im_dapi = np.array(im[-1],dtype=np.float32)
+        imd = im_dapi
+        if psf_file is not None:
+            psf = np.load(psf_file)
+            imd = full_deconv(im_dapi,s_=500,pad=100,psf=psf,parameters={'method': 'wiener', 'beta': 0.01},gpu=True,force=False)
+        im_dapi_ = norm_slice(imd,s=sdapi)
+
+
+        img = np.array(np.clip((im_dapi_[::3,::4,::4]-p1)/(p99-p1),0,1),dtype=np.float32)
+        imd_ = imd[::3,::4,::4]
+
+        from cellpose import models, io,utils
+        from scipy import ndimage
+        model = models.Cellpose(gpu=True, model_type='cyto')
+        masks, flows, styles, diams = model.eval(img,z_axis=0, diameter=20, channels=[0,0],
+                                                 flow_threshold=-10,cellprob_threshold=-10,normalize=False,
+                                                 do_3D=False,stitch_threshold=0.,
+                                                 progress=True)
+
+        for ifr in range(len(masks)):
+            means = nd.mean(imd_[ifr],masks[ifr],np.unique(masks[ifr]))
+            bad_cells = np.where(means<mean_dapi)[0]
+            masks[ifr] = replace_mat(masks[ifr],bad_cells,0)
+        if plt_val:
+            import napari
+            v = napari.view_image(img)
+            v.add_labels(masks)
+        shape = np.array(im[-1].shape)
+        np.savez_compressed(save_fl,segm = masks,shape = shape)
+    return save_fl
+>>>>>>> 2557eff9415d57b778245e173ada9488141a0313
