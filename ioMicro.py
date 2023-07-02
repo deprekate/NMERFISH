@@ -2201,7 +2201,7 @@ class decoder_simple():
                 if bit not in dic_bit_to_code: dic_bit_to_code[bit]=[]
                 dic_bit_to_code[bit].append(icd)
         self.dic_bit_to_code = dic_bit_to_code  ### a dictinary in which each bit is mapped to the inde of a code
-    def get_icodes(self,nmin_bits=4,method = 'top4',redo=False,norm_brightness=None,nbits=48):    
+    def get_icodes(self,nmin_bits=4,method = 'top4',redo=False,norm_brightness=None,nbits=48,is_unique=True):    
         #### unfold res which is a list of list with clusters of loc.
         
         
@@ -2272,29 +2272,30 @@ class decoder_simple():
             scores_prunedN = np.array([scores_bits[imol][codes[icd]] for imol,icd in enumerate(icodesN) if icd>-1])
 
         print("Computed the decoding:",time.time()-start)
+        
+        if is_unique:
+            import time
+            start = time.time()
 
-        import time
-        start = time.time()
-
-        mean_scores = np.mean(scores_prunedN,axis=-1)
-        ordered_mols = np.argsort(mean_scores)[::-1]
-        keep_mols = []
-        visited = np.zeros(len(self.XH))
-        for imol in tqdm(ordered_mols):
-            r = np.array(res_prunedN[imol])
-            r_ = r[r>=0]
-            if np.all(visited[r_]==0):
-                keep_mols.append(imol)
-                visited[r_]=1
-        keep_mols = np.array(keep_mols)
-        self.scores_prunedN = scores_prunedN[keep_mols]
-        self.res_prunedN = res_prunedN[keep_mols]
-        self.icodesN = icodesN[keep_mols]
-        print("Computed best unique assigment:",time.time()-start)
+            mean_scores = np.mean(scores_prunedN,axis=-1)
+            ordered_mols = np.argsort(mean_scores)[::-1]
+            keep_mols = []
+            visited = np.zeros(len(self.XH))
+            for imol in tqdm(ordered_mols):
+                r = np.array(res_prunedN[imol])
+                r_ = r[r>=0]
+                if np.all(visited[r_]==0):
+                    keep_mols.append(imol)
+                    visited[r_]=1
+            keep_mols = np.array(keep_mols)
+            self.scores_prunedN = scores_prunedN[keep_mols]
+            self.res_prunedN = res_prunedN[keep_mols]
+            self.icodesN = icodesN[keep_mols]
+            print("Computed best unique assigment:",time.time()-start)
         
         XH_pruned = self.XH[self.res_prunedN]
         self.XH_pruned = XH_pruned#self.XH[self.res_prunedN]
-        np.savez_compressed(self.decoded_fl,XH_pruned=XH_pruned,icodesN=self.icodesN,gns_names = np.array(self.gns_names))
+        np.savez_compressed(self.decoded_fl,XH_pruned=XH_pruned,icodesN=self.icodesN,gns_names = np.array(self.gns_names),is_unique=is_unique)
         #XH_pruned -> 10000000 X 4 X 10 [z,x,y,bk...,corpsf,h,col,bit] 
         #icodesN -> 10000000 index of the decoded molecules in gns_names
         #gns_names
@@ -3211,7 +3212,7 @@ def new_segmentation(fl =r'\\192.168.0.100\bbfish100\DCBBL1_4week_6_2_2023\H1_ME
         shape = np.array(im[-1].shape)
         np.savez_compressed(save_fl,segm = masks,shape = shape)
     return save_fl
-def check_image(dec,tag = '_MER_'):
+def check_image(dec,tag = '_MER'):
     drifts,flds,fov_ = np.load(dec.drift_fl,allow_pickle=True)
     dec.drifts,dec.flds,dec.fov_ = drifts,flds,fov_
     print("Found files for fov:",fov_,flds)
