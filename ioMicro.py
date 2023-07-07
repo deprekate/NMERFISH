@@ -2210,7 +2210,7 @@ class decoder_simple():
 
         import time
         start = time.time()
-        if nmin_bits is None: nmin_bits = n_on_bits
+        n_on_bits = nmin_bits
         res = [r for r in res if len(r)>=nmin_bits]
         #rlens = [len(r) for r in res]
         #edges = np.cumsum([0]+rlens)
