@@ -2110,12 +2110,17 @@ class decoder_simple():
         self.drift_fls = glob.glob(self.save_folder+os.sep+'drift_*.pkl')
         self.fov_sets = [os.path.basename(fl).replace('drift_','').replace('.pkl','').split('--')
                          for fl in self.drift_fls]
-    def get_XH(self,fov,set_,ncols=3,nbits=16):
+    def get_XH(self,fov,set_,ncols=3,nbits=16,th_h=0):
         self.set_ = set_
         save_folder = self.save_folder
-        drift_fl = save_folder+os.sep+'drift_'+fov.split('.')[0]+'--'+set_+'.pkl'
-        drifts,all_flds,fov = pickle.load(open(drift_fl,'rb'))
-        self.drifts,self.all_flds,self.fov = drifts,all_flds,fov
+        drift_fl = save_folder+os.sep+'driftNew_'+fov.split('.')[0]+'--'+set_+'.pkl'
+        if os.path.exists(drift_fl):
+            drifts,all_flds,fov,fl_ref = pickle.load(open(drift_fl,'rb'))
+            self.drifts,self.all_flds,self.fov,self.fl_ref = drifts,all_flds,fov,fl_ref
+        else:
+            drift_fl = save_folder+os.sep+'driftNew_'+fov.split('.')[0]+'--'+set_+'.pkl'
+            drifts,all_flds,fov = pickle.load(open(drift_fl,'rb'))
+            self.drifts,self.all_flds,self.fov = drifts,all_flds,fov
 
         XH = []
         for iH in tqdm(np.arange(len(all_flds))):
@@ -2126,6 +2131,7 @@ class decoder_simple():
                     save_fl = save_folder+os.sep+fov.split('.')[0]+'--'+tag+'--col'+str(icol)+'__Xhfits.npy.npz'
                     if not os.path.exists(save_fl):save_fl = save_fl.replace('.npy','')
                     Xh = np.load(save_fl)['Xh']
+                    Xh = Xh[Xh[:,-1]>th_h]
                     tzxy = drifts[iH][0]
                     Xh[:,:3]+=tzxy# drift correction
                     ih = get_iH(fld) # get bit
@@ -2153,7 +2159,43 @@ class decoder_simple():
             Ts = cKDTree(Xs)
             res = Ts.query_ball_tree(Ts,dinstance_th)
         self.res = res
-        
+    def get_inters(self,nmin_bits=4,dinstance_th=2,enforce_color=True,redo=False):
+        """Get an initial intersection of points and save in self.res"""
+        self.res_fl = self.decoded_fl.replace('decoded','res')
+        if not os.path.exists(self.res_fl) or redo:
+            
+            res =[]
+            if enforce_color:
+                icols = self.XH[:,-2].astype(int)
+                XH = self.XH
+                for icol in tqdm(np.unique(icols)):
+                    inds = np.where(icols==icol)[0]
+                    Xs = XH[inds,:3]
+                    Ts = cKDTree(Xs)
+                    res_ = Ts.query_ball_tree(Ts,dinstance_th)
+                    res += [inds[r] for r in res_]
+            else:
+                XH = self.XH
+                Xs = XH[:,:3]
+                Ts = cKDTree(Xs)
+                res = Ts.query_ball_tree(Ts,dinstance_th)
+            print("Calculating lengths of clusters...")
+            lens = np.array(list(map(len,res)))
+            Mlen = np.max(lens)
+            print("Unfolding indexes...")
+            res_unfolder = np.concatenate(res)
+            print("Saving to file:",self.res_fl)
+            self.res_unfolder=res_unfolder
+            self.lens=lens
+            np.savez(self.res_fl,res_unfolder=res_unfolder,lens=lens)
+        else:
+            dic = np.load(self.res_fl)
+            self.res_unfolder=dic['res_unfolder']
+            self.lens=dic['lens']
+            #self.res = res
+        lens =self.lens
+        self.res_unfolder = self.res_unfolder[np.repeat(lens, lens)>=nmin_bits]
+        self.lens = self.lens[lens>=nmin_bits]    
     def load_library(self,lib_fl = r'Z:\DCBBL1_3_2_2023\MERFISH_Analysis\codebook_0_New_DCBB-300_MERFISH_encoding_2_21_2023.csv',nblanks=-1):
         code_txt = np.array([ln.replace('\n','').split(',') for ln in open(lib_fl,'r') if ',' in ln])
         gns = code_txt[1:,0]
@@ -3355,3 +3397,292 @@ def get_scdata(dfR,cell_dfR,genes_prev=None,th_vol = 2500,pixel_size=0.10833*4):
     #sc.tl.umap(scdata2,random_state=9)
     sc.pp.pca(scdata2)
     return scdata2
+    
+
+def normalize_ims(im0,zm=5,zM=50):
+    imn = np.array([cv2.blur(im_,(zm,zm))-cv2.blur(im_,(zM,zM)) for im_ in im0])
+    return imn
+def get_XB(im_,th=3):
+    #im_ = self.im1n
+    std_ = np.std(im_[::5,::5,::5])
+    keep = im_>std_*th
+    XB = np.array(np.where(keep)).T
+    from tqdm import tqdm
+    for delta_fit in tqdm([1,2,3,5,7,10,15]):
+        XI = np.indices([2*delta_fit+1]*3)-delta_fit
+        keep = (np.sum(XI*XI,axis=0)<=(delta_fit*delta_fit))
+        XI = XI[:,keep].T
+        XS = (XB[:,np.newaxis]+XI[np.newaxis])
+        shape = im_.shape
+        XS = XS%shape
+
+        keep = im_[tuple(XB.T)]>=np.max(im_[tuple(XS.T)],axis=0)
+        XB = XB[keep]
+    return XB
+def get_max_min(P,imn,delta_fit=5,ismax=True,return_ims=False):
+    XI = np.indices([2*delta_fit+1]*3)-delta_fit
+    keep = (np.sum(XI*XI,axis=0)<=(delta_fit*delta_fit))
+    XI = XI[:,keep].T
+    XS = (P[:,np.newaxis]+XI[np.newaxis])
+    shape = imn.shape
+    XSS = XS.copy()
+    XS = XS%shape
+    #XSS = XS.copy()
+    is_bad = np.any((XSS!=XS),axis=-1)
+
+
+    sh_ = XS.shape
+    XS = XS.reshape([-1,3])
+    im1n_local = imn[tuple(XS.T)].reshape(sh_[:-1])
+    #print(is_bad.shape,im1n_local.shape)
+    im1n_local[is_bad]=np.nan
+
+    im1n_local = im1n_local-np.nanmin(im1n_local,axis=1)[:,np.newaxis]
+    im1n_local = im1n_local/np.nansum(im1n_local,axis=1)[:,np.newaxis]
+    XS = XS.reshape(list(im1n_local.shape)+[3])
+    return np.nansum(im1n_local[...,np.newaxis]*XS,axis=1)
+def get_best_drift(XB1_,XB2_,exp_drift,th_d = 5):
+    XB2T = XB2_-exp_drift     
+    #XB1_ = XB1_minus
+    ds,inds2 = cKDTree(XB2T).query(XB1_)
+    inds1 = np.where(ds<th_d)[0]
+    inds2 = inds2[inds1]
+    XB1__ = XB1_[inds1]
+    XB2__ = XB2_[inds2]
+    pair_minus = [XB1__,XB2__]
+    drft_minus = np.mean((XB2__-XB1__),axis=0)
+    return drft_minus,pair_minus
+class fine_drift:
+    def __init__(self,fl_ref,fl,verbose=True,sz_block=600):
+        self.sz_block=sz_block
+        self.verbose=verbose
+        self.fl,self.fl_ref='',''
+        self.get_drift(fl_ref,fl)
+        
+    def get_drift(self,fl_ref,fl):
+        if fl_ref!=self.fl_ref:
+            if self.verbose: print("Loading:",fl_ref)
+            self.im_ref = self.load_im(fl_ref)
+            if self.verbose: print("Finding markers...")
+            self.XB1_minus,self.XB1_plus = self.get_X_plus_minus(self.im_ref)
+            self.fl_ref = fl_ref
+        if fl!=self.fl:
+            if self.verbose: print("Loading:",fl)
+            self.im = self.load_im(fl)
+            if self.verbose: print("Finding markers...")
+            self.XB2_minus,self.XB2_plus = self.get_X_plus_minus(self.im)
+            if self.verbose: print("Finding rough drift...")
+            self.drift = get_txyz(self.im_ref,self.im,sz_norm=30,sz=self.sz_block)
+            self.exp_drift = self.drift[0]
+            if self.verbose: print("Finding fine drift...")
+            self.drft_minus,self.pair_minus = get_best_drift(self.XB1_minus,self.XB2_minus,self.exp_drift,5)
+            self.drft_plus,self.pair_plus = get_best_drift(self.XB1_plus,self.XB2_plus,self.exp_drift,5)
+            self.fl = fl
+        return self.drft_plus,self.pair_plus,self.drft_minus,self.pair_minus
+            
+            
+    def load_im(self,fl):
+        return np.array(read_im(fl)[-1],dtype=np.float32)
+        
+    def get_X_plus_minus(self,im1):
+        #load dapi
+        im1n = normalize_ims(im1,zm=30,zM=60)
+        XB1 = get_XB(-im1n,th=2.5)
+        XB1_minus = get_max_min(XB1,-im1n,delta_fit=7,ismax=True,return_ims=False)
+        XB1 = get_XB(im1n,th=2.5)
+        XB1_plus = get_max_min(XB1,im1n,delta_fit=7,ismax=True,return_ims=False)
+        return XB1_minus,XB1_plus
+import torch
+def unique(x, dim=None):
+    """Unique elements of x and indices of those unique elements
+    https://github.com/pytorch/pytorch/issues/36748#issuecomment-619514810
+
+    e.g.
+
+    unique(tensor([
+        [1, 2, 3],
+        [1, 2, 4],
+        [1, 2, 3],
+        [1, 2, 5]
+    ]), dim=0)
+    => (tensor([[1, 2, 3],
+                [1, 2, 4],
+                [1, 2, 5]]),
+        tensor([0, 1, 3]))
+    """
+    unique, inverse = torch.unique(
+        x, sorted=True, return_inverse=True, dim=dim)
+    perm = torch.arange(inverse.size(0), dtype=inverse.dtype,
+                        device=inverse.device)
+    inverse, perm = inverse.flip([0]), perm.flip([0])
+    return unique, inverse.new_empty(unique.size(0)).scatter_(0, inverse, perm)
+def get_unique_ordered(vals):
+    #vals = torch.from_numpy(vals)
+    vals,_ = torch.sort(vals,dim=-1)
+    del _
+    vals,rinv = unique(vals,dim=0)
+    return vals,rinv
+def get_icodesV2(dec,nmin_bits=4,delta_bits=None,iH=-3,redo=False,norm_brightness=False,nbits=24,is_unique=False):
+    """
+    This is an updated version that includes uniqueness
+    """
+    
+    import time
+    start = time.time()
+    lens = dec.lens
+    res_unfolder = dec.res_unfolder
+    Mlen = np.max(lens)
+    print("Calculating indexes within cluster...")
+    res_is = np.tile(np.arange(Mlen), len(lens))
+    res_is = res_is[res_is < np.repeat(lens, Mlen)]
+    print("Calculating index of molecule...")
+    ires = np.repeat(np.arange(len(lens)), lens)
+    #r0 = np.array([r[0] for r in res for r_ in r])
+    print("Calculating index of first molecule...")
+    r0i = np.concatenate([[0],np.cumsum(lens)])[:-1]
+    r0 = res_unfolder[np.repeat(r0i, lens)]
+    print("Total time unfolded molecules:",time.time()-start)
+
+    ### torch
+    ires = torch.from_numpy(ires.astype(np.int64))
+    res_unfolder = torch.from_numpy(res_unfolder.astype(np.int64))
+    res_is = torch.from_numpy(res_is.astype(np.int64))
+    
+    
+    
+    ### get score for brightness 
+    def get_scoresH():
+        H = torch.from_numpy(dec.XH[:,-3])
+        Hlog = H#np.log(H)
+        mnH = Hlog.mean()
+        stdH = Hlog.std()
+        distribution = torch.distributions.Normal(mnH, stdH)
+        scoreH = distribution.cdf(Hlog)
+        return scoreH[res_unfolder]
+    ### get score for inter-distance between molecules
+    def get_scoresD():
+        X = dec.XH[:,:3]
+        XT = torch.from_numpy(X)
+        XD = XT[res_unfolder]-XT[r0]
+        meanD = -torch.mean(torch.abs(XD),axis=-1)
+        distribution = torch.distributions.Normal(meanD.mean(), meanD.std())
+        scoreD = distribution.cdf(meanD)
+        return scoreD
+    def get_combined_scores():
+        scoreH = get_scoresH()
+        scoreD = get_scoresD()
+        ### combine scores. Note this score is for all the molecules un-ravelled from their clusters
+        scoreF = scoreD*scoreH
+        return scoreF
+    
+    import time
+    start = time.time()
+    print("Computing score...")
+    if iH is None:
+        scoreF = get_combined_scores()
+    else:
+        scoreF = torch.from_numpy(dec.XH[:,iH])[res_unfolder]
+    print("Total time computing score:",time.time()-start)
+
+    ### organize molecules in blocks for each cluster
+    def get_asort_scores():
+        val = torch.max(scoreF)+2
+        scoreClu = torch.zeros([len(lens),Mlen],dtype=torch.float64)+val
+        scoreClu[ires,res_is]=scoreF
+        asort = scoreClu.argsort(-1)
+        scoreClu = torch.gather(scoreClu,dim=-1,index=asort)
+        scoresF2 = scoreClu[scoreClu<val-1]
+        return asort,scoresF2
+    def get_reorder(x,val=-1):
+        if type(x) is not torch.Tensor:
+            x = torch.from_numpy(np.array(x))
+        xClu = torch.zeros([len(lens),Mlen],dtype=x.dtype)+val
+        xClu[ires,res_is] = x
+        xClu = torch.gather(xClu,dim=-1,index=asort)
+        xf = xClu[xClu>val]
+        return xf
+
+    import time
+    start = time.time()
+    print("Computing sorting...")
+    asort,scoresF2 = get_asort_scores()
+    res_unfolder2 = get_reorder(res_unfolder,val=-1)
+    del asort
+    del scoreF
+    print("Total time sorting molecules by score:",time.time()-start)
+    
+    
+    
+    import time
+    start = time.time()
+    print("Finding best bits per molecules...")
+
+    Rs = dec.XH[:,-1].astype(np.int64)
+    Rs = torch.from_numpy(Rs)
+    Rs_U = Rs[res_unfolder2]
+
+    score_bits = torch.zeros([len(lens),nbits],dtype=scoresF2.dtype)-1
+    score_bits[ires,Rs_U]=scoresF2
+
+    
+    codes_lib = torch.from_numpy(np.array(dec.codes__))
+    
+    if is_unique:
+        codes_lib_01 = torch.zeros([len(codes_lib),nbits],dtype=score_bits.dtype)
+        for icd,cd in enumerate(codes_lib):
+            codes_lib_01[icd,cd]=1
+
+        print("Finding best code...")
+        batch = 10000
+        icodes_best = torch.zeros(len(score_bits),dtype=torch.int64)
+        from tqdm import tqdm
+        for i in tqdm(range((len(score_bits)//batch)+1)):
+            score_bits_ = score_bits[i*batch:(i+1)*batch]
+            if len(score_bits_)>0:
+                icodes_best[i*batch:(i+1)*batch] = torch.argmax(torch.matmul(score_bits_,codes_lib_01.T),dim=-1)
+    
+        if delta_bits is not None:
+            argsort_bits = torch.argsort(score_bits,dim=-1,descending=True)[:,:(nmin_bits+delta_bits)]
+            score_bits_ = score_bits*0
+            score_bits_.scatter_(1, argsort_bits, 1)
+            keep_all_bits = torch.all(score_bits_.gather(1,codes_lib[icodes_best])>0.5,-1)
+        else:
+            keep_all_bits = torch.all(score_bits.gather(1,codes_lib[icodes_best])>=0,-1)
+        
+        score_bits = score_bits[keep_all_bits]
+        icodes_best_ = icodes_best[keep_all_bits]
+        icodesN=icodes_best_
+        
+        indexMols_ = torch.zeros([len(lens),nbits],dtype=res_unfolder2.dtype)-1
+        indexMols_[ires,Rs_U]=res_unfolder2
+        indexMols_ = indexMols_[keep_all_bits]
+        indexMols_ = indexMols_.gather(1,codes_lib[icodes_best_])
+        # make unique
+        indexMols_,rinvMols = get_unique_ordered(indexMols_)
+        icodesN = icodesN[rinvMols]
+    else:
+        indexMols_ = torch.zeros([len(lens),nbits],dtype=res_unfolder2.dtype)-1
+        indexMols_[ires,Rs_U]=res_unfolder2
+        def get_inclusive(imols,code_lib):
+            iMol,iScore = torch.where(torch.all(imols[...,code_lib]>0,dim=-1))
+            return imols[iMol].gather(1,code_lib[iScore]),iScore
+        batch = 10000
+        from tqdm import tqdm
+        indexMolsF_ = torch.zeros([0,codes_lib.shape[-1]],dtype=torch.int64)
+        icodesN = torch.zeros([0],dtype=torch.int64)
+        for i in tqdm(range((len(indexMols_)//batch)+1)):
+            indexMols__ = indexMols_[i*batch:(i+1)*batch]
+            if len(indexMols__)>0:
+                indexMolsF__,icodesN_ = get_inclusive(indexMols__,codes_lib)
+                indexMolsF_ = torch.concatenate([indexMolsF_,indexMolsF__])
+                icodesN = torch.concatenate([icodesN,icodesN_])
+        indexMols_ = indexMolsF_
+        indexMols_,rinvMols = get_unique_ordered(indexMols_)
+        icodesN = icodesN[rinvMols]
+    XH = torch.from_numpy(dec.XH)
+    XH_pruned = XH[indexMols_]
+    
+    dec.XH_pruned=XH_pruned.numpy()
+    dec.icodesN=icodesN.numpy()
+    np.savez_compressed(dec.decoded_fl,XH_pruned=dec.XH_pruned,icodesN=dec.icodesN,gns_names = np.array(dec.gns_names),is_unique=is_unique)
+    print("Total time best bits per molecule:",time.time()-start)
