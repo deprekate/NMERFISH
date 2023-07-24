@@ -149,12 +149,12 @@ if __name__ == '__main__':
     items = [(set_,ifov)for set_ in ['_D7','_D9','_D13','_D14','_D16'][::-1] for ifov in range(1000)]
     items = [(set_,ifov)for set_ in ['_D16'][::-1] for ifov in range(1000)]
                         
-    main_f(['_D16',59])
+    #main_f(['_D16',59])
     #_,flds,_ = get_files(['_D16',59])
     #for fld in flds:
     #    print(fld)
-    if False:
-        with Pool(processes=5) as pool:
+    if True:
+        with Pool(processes=4) as pool:
             print('starting pool')
             result = pool.map(main_f, items)
 
