@@ -3213,7 +3213,8 @@ def stitch3d_new(im_segm,minsz = 600/3,maxsz=600*3,th_int=0.75,th_cover=0.8,th_m
     
     im_segm_u_exp = expand_segmentation(im_segm_u__,nexpand=nexpand)
     return im_segm_u_exp
-
+<<<<<<< HEAD
+=======
 def new_segmentation(fl =r'\\192.168.0.100\bbfish100\DCBBL1_4week_6_2_2023\H1_MER_set1\Conv_zscan__030.zarr',
                      psf_file = '\\\\192.168.0.100\\bbfish100\\DCBBL1_4week_6_2_2023\\MERFISH_Analysis\\psf_750_Scope3_final.npy',
                      p1=-500,p99=1500,mean_dapi = None,sdapi = 100,
@@ -3399,6 +3400,8 @@ def get_scdata(dfR,cell_dfR,genes_prev=None,th_vol = 2500,pixel_size=0.10833*4):
     #sc.tl.umap(scdata2,random_state=9)
     sc.pp.pca(scdata2)
     return scdata2
+    
+>>>>>>> 990b12ef527ae4aa2dadf45099a163dc7cb0e89f
 
 def normalize_ims(im0,zm=5,zM=50):
     imn = np.array([cv2.blur(im_,(zm,zm))-cv2.blur(im_,(zM,zM)) for im_ in im0])
@@ -3474,8 +3477,11 @@ class fine_drift:
             if self.verbose: print("Finding markers...")
             self.XB2_minus,self.XB2_plus = self.get_X_plus_minus(self.im)
             if self.verbose: print("Finding rough drift...")
+<<<<<<< HEAD
+            self.drift = get_txyz(self.im_ref,self.im,sz_norm=30,sz=600)
+=======
             self.drift = get_txyz(self.im_ref,self.im,sz_norm=30,sz=self.sz_block)
-
+>>>>>>> 990b12ef527ae4aa2dadf45099a163dc7cb0e89f
             self.exp_drift = self.drift[0]
             if self.verbose: print("Finding fine drift...")
             self.drft_minus,self.pair_minus = get_best_drift(self.XB1_minus,self.XB2_minus,self.exp_drift,5)
@@ -3494,8 +3500,10 @@ class fine_drift:
         XB1_minus = get_max_min(XB1,-im1n,delta_fit=7,ismax=True,return_ims=False)
         XB1 = get_XB(im1n,th=2.5)
         XB1_plus = get_max_min(XB1,im1n,delta_fit=7,ismax=True,return_ims=False)
+<<<<<<< HEAD
         return XB1_minus,XB1_plus
-
+=======
+        return XB1_minus,XB1_plus
 import torch
 def unique(x, dim=None):
     """Unique elements of x and indices of those unique elements
@@ -3690,4 +3698,4 @@ def get_icodesV2(dec,nmin_bits=4,delta_bits=None,iH=-3,redo=False,norm_brightnes
     dec.icodesN=icodesN.numpy()
     np.savez_compressed(dec.decoded_fl,XH_pruned=dec.XH_pruned,icodesN=dec.icodesN,gns_names = np.array(dec.gns_names),is_unique=is_unique)
     print("Total time best bits per molecule:",time.time()-start)
-
+>>>>>>> 990b12ef527ae4aa2dadf45099a163dc7cb0e89f

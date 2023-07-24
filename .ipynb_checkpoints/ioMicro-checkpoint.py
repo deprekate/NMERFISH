@@ -2113,7 +2113,14 @@ class decoder_simple():
     def get_XH(self,fov,set_,ncols=3,nbits=16):
         self.set_ = set_
         save_folder = self.save_folder
+<<<<<<< HEAD
+        drift_fl = save_folder+os.sep+'driftNew_'+fov.split('.')[0]+'--'+set_+'.pkl'
+        if not os.path.exists(drift_fl):
+            drift_fl = save_folder+os.sep+'drift_'+fov.split('.')[0]+'--'+set_+'.pkl'
+            print("Using old name")
+=======
         drift_fl = save_folder+os.sep+'drift_'+fov.split('.')[0]+'--'+set_+'.pkl'
+>>>>>>> 990b12ef527ae4aa2dadf45099a163dc7cb0e89f
         drifts,all_flds,fov = pickle.load(open(drift_fl,'rb'))
         self.drifts,self.all_flds,self.fov = drifts,all_flds,fov
 
@@ -2201,7 +2208,11 @@ class decoder_simple():
                 if bit not in dic_bit_to_code: dic_bit_to_code[bit]=[]
                 dic_bit_to_code[bit].append(icd)
         self.dic_bit_to_code = dic_bit_to_code  ### a dictinary in which each bit is mapped to the inde of a code
+<<<<<<< HEAD
+    def get_icodes(self,nmin_bits=4,method = 'top4',redo=False,norm_brightness=None,nbits=48,is_unique=True):    
+=======
     def get_icodes(self,nmin_bits=4,method = 'top4',redo=False,norm_brightness=None,nbits=48):    
+>>>>>>> 990b12ef527ae4aa2dadf45099a163dc7cb0e89f
         #### unfold res which is a list of list with clusters of loc.
         
         
@@ -2273,6 +2284,29 @@ class decoder_simple():
 
         print("Computed the decoding:",time.time()-start)
 
+<<<<<<< HEAD
+        self.scores_prunedN = scores_prunedN
+        self.res_prunedN = res_prunedN
+        self.icodesN = icodesN
+        if is_unique:
+            import time
+            start = time.time()
+            mean_scores = np.mean(scores_prunedN,axis=-1)
+            ordered_mols = np.argsort(mean_scores)[::-1]
+            keep_mols = []
+            visited = np.zeros(len(self.XH))
+            for imol in tqdm(ordered_mols):
+                r = np.array(res_prunedN[imol])
+                r_ = r[r>=0]
+                if np.all(visited[r_]==0):
+                    keep_mols.append(imol)
+                    visited[r_]=1
+            keep_mols = np.array(keep_mols)
+            self.scores_prunedN = scores_prunedN[keep_mols]
+            self.res_prunedN = res_prunedN[keep_mols]
+            self.icodesN = icodesN[keep_mols]
+            print("Computed best unique assigment:",time.time()-start)
+=======
         import time
         start = time.time()
 
@@ -2291,6 +2325,7 @@ class decoder_simple():
         self.res_prunedN = res_prunedN[keep_mols]
         self.icodesN = icodesN[keep_mols]
         print("Computed best unique assigment:",time.time()-start)
+>>>>>>> 990b12ef527ae4aa2dadf45099a163dc7cb0e89f
         
         XH_pruned = self.XH[self.res_prunedN]
         self.XH_pruned = XH_pruned#self.XH[self.res_prunedN]
@@ -3116,6 +3151,9 @@ def stitch3d_new(im_segm,minsz = 600/3,maxsz=600*3,th_int=0.75,th_cover=0.8,th_m
     cfr,cto = zip(*[(c,ic+1) for ic,cs in enumerate(components) for c in cs])
     im_segm_u__ = replace_mat(im_segm_u_,np.array(cfr),np.array(cto))
     im_segm_u_exp = expand_segmentation(im_segm_u__,nexpand=nexpand)
+<<<<<<< HEAD
+    return im_segm_u_exp
+=======
     return im_segm_u_exp
 def new_segmentation(fl =r'\\192.168.0.100\bbfish100\DCBBL1_4week_6_2_2023\H1_MER_set1\Conv_zscan__030.zarr',
                      psf_file = '\\\\192.168.0.100\\bbfish100\\DCBBL1_4week_6_2_2023\\MERFISH_Analysis\\psf_750_Scope3_final.npy',
@@ -3159,3 +3197,4 @@ def new_segmentation(fl =r'\\192.168.0.100\bbfish100\DCBBL1_4week_6_2_2023\H1_ME
         shape = np.array(im[-1].shape)
         np.savez_compressed(save_fl,segm = masks,shape = shape)
     return save_fl
+>>>>>>> 990b12ef527ae4aa2dadf45099a163dc7cb0e89f
