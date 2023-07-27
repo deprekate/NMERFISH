@@ -1,11 +1,9 @@
-#activate napari&&python "C:\Scripts\NMERFISH\worker_Scope1__EmbryoPlateE1.py"
+#activate cellpose&&python "C:\Users\BintuLabUser\BintuLabScripts1\MERFISH_DC_SCOPE2\Analysis_1500gns_MERFISH_dev\worker_Scope1.py"
 from multiprocessing import Pool, TimeoutError
 import time,sys
 import os,sys,numpy as np
 
-master_analysis_folder = r'C:\Scripts\NMERFISH'
-library_file = master_analysis_folder+r'\codebooks\blank_codebook_Mahsa_DevEP1-code_color2__comb16-4-4.csv'
-psf_file = master_analysis_folder+r'\psfs\psf_750_Scope1_embryo_big_final.npy'
+master_analysis_folder = r'C:\Users\BintuLabUser\BintuLabScripts1\MERFISH_DC_SCOPE2\Analysis_1500gns_MERFISH_dev'
 sys.path.append(master_analysis_folder)
 from ioMicro import *
 
@@ -73,15 +71,10 @@ def compute_fits(save_folder,fov,all_flds,redo=False,ncols=4):
                             im_med = np.array(np.load(fl_med)['im'],dtype=np.float32)
                             im_med = cv2.blur(im_med,(20,20))
                             im__ = im__/im_med*np.median(im_med)
-                        psf = np.load(psf_file)  
-                        try:
-                            Xh = get_local_max_tile(im__,th=3600,s_ = 500,pad=100,psf=psf,plt_val=None,snorm=30,gpu=True,
-                                                    deconv={'method':'wiener','beta':0.0001},
-                                                    delta=1,delta_fit=3,sigmaZ=1,sigmaXY=1.5)
-                        except:
-                            Xh = get_local_max_tile(im__,th=3600,s_ = 500,pad=100,psf=psf,plt_val=None,snorm=30,gpu=False,
-                                                    deconv={'method':'wiener','beta':0.0001},
-                                                    delta=1,delta_fit=3,sigmaZ=1,sigmaXY=1.5)
+                        psf = np.load(r'X:\psf_750_Scope1_embryo_big_final.npy')
+                        Xh = get_local_max_tile(im__,th=3600,s_ = 500,pad=100,psf=psf,plt_val=None,snorm=30,gpu=True,
+                                                deconv={'method':'wiener','beta':0.0001},
+                                                delta=1,delta_fit=3,sigmaZ=1,sigmaXY=1.5)
                     np.savez_compressed(save_fl,Xh=Xh)
                 except:
                     print("Failed",fld,fov,icol)
@@ -91,7 +84,7 @@ def compute_decoding(save_folder,fov,set_,redo=False):
     if complete==0 or redo:
         dec.get_XH(fov,set_,ncols=3)#number of colors match 
         dec.XH = dec.XH[dec.XH[:,-4]>0.25] ### keep the spots that are correlated with the expected PSF for 60X
-        dec.load_library(library_file,nblanks=-1)
+        dec.load_library(r'C:\Users\BintuLabUser\BintuLabScripts1\MERFISH_DC_SCOPE2\Analysis_1500gns_MERFISH_dev\codebook_Mahsa_DevP1P2-code_color2__comb16-4-4_blank.csv',nblanks=-1)
         dec.get_inters(dinstance_th=2,enforce_color=True)# enforce_color=False
         dec.get_icodes(nmin_bits=4,method = 'top4',norm_brightness=-1)
 def get_iH(fld): 
@@ -99,27 +92,24 @@ def get_iH(fld):
         return int(os.path.basename(fld).split('_')[0][1:])
     except:
         return np.inf
-def get_files(set_ifov,iHm=16*4+1,iHM=16*5):
-    
-    
-    save_folder =r'\\192.168.0.6\bbfishjoy4extra\MERFISH_AnalysisPE1'
+def get_files(set_ifov):
+    save_folder =r'\\192.168.0.6\bbfishjoy4\CGBB_embryo_4_28_2023\MERFISH_Analysis3'
     if not os.path.exists(save_folder): os.makedirs(save_folder)
-    set_,ifov = set_ifov
+    set__ = '_D7' ### take a test set and then replace with the others
     
-    all_flds = glob.glob(r'\\192.168.0.6\bbfishjoy4\CGBB_embryo_4_28_2023\H*')
-    all_flds += glob.glob(r'\\192.168.0.7\bbfishmahsa\CGBB_embryo_4_28_2023\H*')
-    all_flds = [fld for fld in all_flds if ((get_iH(fld)<=iHM) and (get_iH(fld)>=iHm) and (set_ in os.path.basename(fld)))]
-    #all_flds += glob.glob(r'\\192.168.0.6\bbfishjoy4\CGBB_embryo_4_28_2023\P*'+set__)
+    all_flds = glob.glob(r'\\192.168.0.6\bbfishjoy4\CGBB_embryo_4_28_2023\H*'+set__)
+    all_flds = [fld for fld in all_flds if get_iH(fld)<=16]
+    all_flds += glob.glob(r'\\192.168.0.6\bbfishjoy4\CGBB_embryo_4_28_2023\P*'+set__)
     
     ### reorder based on hybe
     all_flds = np.array(all_flds)[np.argsort([get_iH(fld)for fld in all_flds])] 
     
-    
+    set_,ifov = set_ifov
+    all_flds = [fld.replace(set__,set_) for fld in all_flds]
     
     fovs_fl = save_folder+os.sep+'fovs__'+set_+'.npy'
     if not os.path.exists(fovs_fl):
-        all_flds_ = [fld for fld in all_flds if 'lowMER' not in os.path.basename(fld)]
-        fls = glob.glob(all_flds_[0]+os.sep+'*.zarr')
+        fls = glob.glob(all_flds[0]+os.sep+'*.zarr')
         fovs = np.sort([os.path.basename(fl) for fl in fls])
         np.save(fovs_fl,fovs)
     else:
@@ -146,15 +136,12 @@ def main_f(set_ifov,redo_fits = False,redo_drift=False,redo_decoding=False):
 
 if __name__ == '__main__':
     # start 4 worker processes
-    items = [(set_,ifov)for set_ in ['_D7','_D9','_D13','_D14','_D16'][::-1] for ifov in range(1000)]
-    items = [(set_,ifov)for set_ in ['_D16'][::-1] for ifov in range(1000)]
+    items = [(set_,ifov)for set_ in ['_D7','_D9','_D13','_D14','_D16'][::-1]#['_set1','_set2','_set3']
+                        for ifov in range(1000)]
                         
     #main_f(['_D16',59])
-    #_,flds,_ = get_files(['_D16',59])
-    #for fld in flds:
-    #    print(fld)
     if True:
-        with Pool(processes=4) as pool:
+        with Pool(processes=5) as pool:
             print('starting pool')
             result = pool.map(main_f, items)
 

@@ -1,13 +1,16 @@
-#activate napari&&python "C:\Scripts\NMERFISH\worker_Scope1__EmbryoPlateE1.py"
+#activate napari&&python "C:\Scripts\NMERFISH\worker_Scope1__EmbryoPlate12Low.py"
 from multiprocessing import Pool, TimeoutError
 import time,sys
 import os,sys,numpy as np
 
 master_analysis_folder = r'C:\Scripts\NMERFISH'
-library_file = master_analysis_folder+r'\codebooks\blank_codebook_Mahsa_DevEP1-code_color2__comb16-4-4.csv'
+library_file = master_analysis_folder+r'\codebooks\blank_codebook_Mahsa_DevP1P2-code_color2__comb16-4-4.csv'
 psf_file = master_analysis_folder+r'\psfs\psf_750_Scope1_embryo_big_final.npy'
 sys.path.append(master_analysis_folder)
 from ioMicro import *
+save_folder =r'X:\CGBB_embryo_4_28_2023\MERFISH_AnalysisP12'
+iHm=1
+iHM=16
 
 
 def compute_drift(save_folder,fov,all_flds,set_,redo=False,gpu=False,szz = 25):
@@ -99,15 +102,15 @@ def get_iH(fld):
         return int(os.path.basename(fld).split('_')[0][1:])
     except:
         return np.inf
-def get_files(set_ifov,iHm=16*4+1,iHM=16*5):
+def get_files(set_ifov,iHm=iHm,iHM=iHM):
     
     
-    save_folder =r'\\192.168.0.6\bbfishjoy4extra\MERFISH_AnalysisPE1'
+    
     if not os.path.exists(save_folder): os.makedirs(save_folder)
     set_,ifov = set_ifov
     
-    all_flds = glob.glob(r'\\192.168.0.6\bbfishjoy4\CGBB_embryo_4_28_2023\H*')
-    all_flds += glob.glob(r'\\192.168.0.7\bbfishmahsa\CGBB_embryo_4_28_2023\H*')
+    all_flds = glob.glob(r'\\192.168.0.6\bbfishjoy4\CGBB_embryo_4_28_2023\H*MER*')
+    all_flds += glob.glob(r'\\192.168.0.7\bbfishmahsa\CGBB_embryo_4_28_2023\H*MER*')
     all_flds = [fld for fld in all_flds if ((get_iH(fld)<=iHM) and (get_iH(fld)>=iHm) and (set_ in os.path.basename(fld)))]
     #all_flds += glob.glob(r'\\192.168.0.6\bbfishjoy4\CGBB_embryo_4_28_2023\P*'+set__)
     
@@ -149,12 +152,12 @@ if __name__ == '__main__':
     items = [(set_,ifov)for set_ in ['_D7','_D9','_D13','_D14','_D16'][::-1] for ifov in range(1000)]
     items = [(set_,ifov)for set_ in ['_D16'][::-1] for ifov in range(1000)]
                         
-    #main_f(['_D16',59])
+    main_f(['_D16',59])
     #_,flds,_ = get_files(['_D16',59])
     #for fld in flds:
     #    print(fld)
-    if True:
-        with Pool(processes=4) as pool:
+    if False:
+        with Pool(processes=5) as pool:
             print('starting pool')
             result = pool.map(main_f, items)
 
