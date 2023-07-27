@@ -7,8 +7,9 @@ lib_fl = r'C:\Scripts\NMERFISH\codebooks\codebook_Sonia2colorP1_group1_blank.csv
 psf_file = r'C:\Scripts\NMERFISH\psfs\psf_750_Scope4_final.npy'
 master_data_folder = r'\\192.168.0.127\Raw_data\Roy\HumanSVZMER_6_26_2023\plate1'
 save_folder =r'\\192.168.0.127\Raw_data\Roy\HumanSVZMER_6_26_2023\MERFISH_Analysis_group1'
-iMin=1
-iMax=12
+iHm=1
+iHM=12
+
 
 from multiprocessing import Pool, TimeoutError
 import time,sys
@@ -17,8 +18,7 @@ import os,sys,numpy as np
 sys.path.append(master_analysis_folder)
 from ioMicro import *
 
-
-def compute_drift(save_folder,fov,all_flds,set_,redo=False,gpu=False,szz = 25):
+def compute_drift(save_folder,fov,all_flds,set_,redo=False,gpu=False):
     """
     save_folder where to save analyzed data
     fov - i.e. Conv_zscan_005.zarr
@@ -29,35 +29,50 @@ def compute_drift(save_folder,fov,all_flds,set_,redo=False,gpu=False,szz = 25):
     #print(all_flds)
     
     # defulat name of the drift file 
-    drift_fl = save_folder+os.sep+'drift_'+fov.split('.')[0]+'--'+set_+'.pkl'
+    drift_fl = save_folder+os.sep+'driftNew_'+fov.split('.')[0]+'--'+set_+'.pkl'
     
     iiref = None
+    fl_ref = None
     previous_drift = {}
     if not os.path.exists(drift_fl) or redo:
         redo = True
     else:
-        drifts_,all_flds_,fov_ = pickle.load(open(drift_fl,'rb'))
-        all_tags_ = np.array([os.path.basename(fld)for fld in all_flds_])
-        all_tags = np.array([os.path.basename(fld)for fld in all_flds])
-        iiref = np.argmin([np.sum(np.abs(drift[0]))for drift in drifts_])
-        previous_drift = {tag:drift for drift,tag in zip(drifts_,all_tags_)}
-        if not (len(all_tags_)==len(all_tags)):
-            redo = True
-        else:
-            if not np.all(np.sort(all_tags_)==np.sort(all_tags)):
+        try:
+            drifts_,all_flds_,fov_,fl_ref = pickle.load(open(drift_fl,'rb'))
+            all_tags_ = np.array([os.path.basename(fld)for fld in all_flds_])
+            all_tags = np.array([os.path.basename(fld)for fld in all_flds])
+            iiref = np.argmin([np.sum(np.abs(drift[0]))for drift in drifts_])
+            previous_drift = {tag:drift for drift,tag in zip(drifts_,all_tags_)}
+
+            if not (len(all_tags_)==len(all_tags)):
                 redo = True
+            else:
+                if not np.all(np.sort(all_tags_)==np.sort(all_tags)):
+                    redo = True
+        except:
+            os.remove(drift_fl)
+            redo=True
     if redo:
-        print("Computing drift...")
-        ims = [read_im(fld+os.sep+fov) for fld in all_flds] #map the image
-        ncols,sz,sx,sy = ims[0].shape
-        sls = slice((sz-szz)//2,(sz+szz)//2)
-        if iiref is None: iiref = len(ims)//2
-        im_ref = np.array(ims[iiref][-1][sls],dtype=np.float32)
-        all_tags = np.array([os.path.basename(fld)for fld in all_flds])
-        drifts = [previous_drift.get(tag,get_txyz(im[-1][sls],im_ref,sz_norm=30, sz=600,gpu=gpu)) 
-                    for im,tag in zip(tqdm(ims),all_tags)]
-        
-        pickle.dump([drifts,all_flds,fov],open(drift_fl,'wb'))
+        fls = [fld+os.sep+fov for fld in all_flds]
+        if fl_ref is None:
+            fl_ref = fls[len(fls)//2]
+        obj = None
+        newdrifts = []
+        all_fldsT = []
+        for fl in tqdm(fls):
+            fld = os.path.dirname(fl)
+            tag = os.path.basename(fld)
+            new_drift_info = previous_drift.get(tag,None)
+            if new_drift_info is None:
+                if obj is None:
+                    obj = fine_drift(fl_ref,fl,sz_block=600)
+                else:
+                    obj.get_drift(fl_ref,fl)
+                new_drift = -(obj.drft_minus+obj.drft_plus)/2
+                new_drift_info = [new_drift,obj.drft_minus,obj.drft_plus,obj.drift,obj.pair_minus,obj.pair_plus]
+            newdrifts.append(new_drift_info)
+            all_fldsT.append(fld)
+            pickle.dump([newdrifts,all_fldsT,fov,fl_ref],open(drift_fl,'wb'))
         
 def main_do_compute_fits(save_folder,fld,fov,icol,save_fl,psf,old_method):
     im_ = read_im(fld+os.sep+fov)
@@ -105,9 +120,12 @@ def compute_decoding(save_folder,fov,set_,redo=False):
     dec = decoder_simple(save_folder,fov,set_)
     complete = dec.check_is_complete()
     if complete==0 or redo:
-        dec.get_XH(fov,set_,ncols=2,nbits=12)#number of colors match 
+        #compute_drift(save_folder,fov,all_flds,set_,redo=False,gpu=False)
+        dec = decoder_simple(save_folder,fov=fov,set_=set_)
+        dec.get_XH(fov,set_,ncols=2,nbits=12,th_h=5000)#number of colors match 
         dec.XH = dec.XH[dec.XH[:,-4]>0.25] ### keep the spots that are correlated with the expected PSF for 60X
-        dec.load_library(lib_fl = lib_fl,nblanks=-1)
+        dec.load_library(lib_fl,nblanks=-1)
+        
         dec.ncols = 2
         if False:
             dec.XH_save = dec.XH.copy()
@@ -118,16 +136,18 @@ def compute_decoding(save_folder,fov,set_,redo=False):
             dec.XH = dec.XH_save.copy()
             R = dec.XH[:,-1].astype(int)
             dec.XH[:,:3] -= dec.drift_arr[R]
-        
-        dec.get_inters(dinstance_th=2,enforce_color=True)# enforce_color=False
-        dec.get_icodes(nmin_bits=4,method = 'top4',norm_brightness=None,nbits=24)#,is_unique=False)
+        #dec.get_inters(dinstance_th=2,enforce_color=True)# enforce_color=False
+        dec.get_inters(dinstance_th=2,nmin_bits=4,enforce_color=True,redo=True)
+        #dec.get_icodes(nmin_bits=4,method = 'top4',norm_brightness=None,nbits=24)#,is_unique=False)
+        get_icodesV2(dec,nmin_bits=4,delta_bits=None,iH=-3,redo=False,norm_brightness=False,nbits=24,is_unique=True)
 
 def get_iH(fld): 
     try:
         return int(os.path.basename(fld).split('_')[0][1:])
     except:
         return np.inf
-def get_files(set_ifov,iHm=iMin,iHM=iMax):
+
+def get_files(set_ifov,iHm=iHm,iHM=iHM):
     master_folder = master_data_folder
     
     if not os.path.exists(save_folder): os.makedirs(save_folder)

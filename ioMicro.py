@@ -2094,8 +2094,8 @@ class decoder_simple():
         self.save_folder = save_folder
         self.fov,self.set_ = fov,set_
         save_folder = self.save_folder
-        self.decoded_fl = save_folder+os.sep+'decoded_'+fov.split('.')[0]+'--'+set_+'.npz'
-        self.drift_fl = save_folder+os.sep+'drift_'+fov.split('.')[0]+'--'+set_+'.pkl'
+        self.decoded_fl = save_folder+os.sep+'decodedNew_'+fov.split('.')[0]+'--'+set_+'.npz'
+        self.drift_fl = save_folder+os.sep+'driftNew_'+fov.split('.')[0]+'--'+set_+'.pkl'
     def check_is_complete(self):
         if os.path.exists(self.decoded_fl):
             print("Completed")
@@ -2130,16 +2130,17 @@ class decoder_simple():
                     tag = os.path.basename(fld)
                     save_fl = save_folder+os.sep+fov.split('.')[0]+'--'+tag+'--col'+str(icol)+'__Xhfits.npy.npz'
                     if not os.path.exists(save_fl):save_fl = save_fl.replace('.npy','')
-                    Xh = np.load(save_fl)['Xh']
-                    Xh = Xh[Xh[:,-1]>th_h]
-                    tzxy = drifts[iH][0]
-                    Xh[:,:3]+=tzxy# drift correction
-                    ih = get_iH(fld) # get bit
-                    is_low = 'low' in tag
-                    bit = ((ih-1)%nbits)*ncols+icol+0.5*is_low
-                    icolR = np.array([[icol,bit]]*len(Xh))
-                    XH_ = np.concatenate([Xh,icolR],axis=-1)
-                    XH.extend(XH_)
+                    Xh = np.load(save_fl,allow_pickle=True)['Xh']
+                    if len(Xh.shape):
+                        Xh = Xh[Xh[:,-1]>th_h]
+                        tzxy = drifts[iH][0]
+                        Xh[:,:3]+=tzxy# drift correction
+                        ih = get_iH(fld) # get bit
+                        is_low = 'low' in tag
+                        bit = ((ih-1)%nbits)*ncols+icol+0.5*is_low
+                        icolR = np.array([[icol,bit]]*len(Xh))
+                        XH_ = np.concatenate([Xh,icolR],axis=-1)
+                        XH.extend(XH_)
         self.XH = np.array(XH)
     def get_inters(self,dinstance_th=2,enforce_color=False):
         """Get an initial intersection of points and save in self.res"""
@@ -2346,7 +2347,7 @@ class decoder_simple():
     def load_decoded(self):
         import time
         start= time.time()
-        self.decoded_fl = self.save_folder+os.sep+'decoded_'+self.fov.split('.')[0]+'--'+self.set_+'.npz'
+        self.decoded_fl = self.save_folder+os.sep+'decodedNew_'+self.fov.split('.')[0]+'--'+self.set_+'.npz'
         if os.path.exists(self.decoded_fl):
             self.XH_pruned = np.load(self.decoded_fl)['XH_pruned']
             self.icodesN = np.load(self.decoded_fl)['icodesN']
@@ -2393,16 +2394,18 @@ class decoder_simple():
                     tag = os.path.basename(fld)
                     save_fl = save_folder+os.sep+fov.split('.')[0]+'--'+tag+'--col'+str(icol)+'__Xhfits.npy.npz'
                     if not os.path.exists(save_fl):save_fl = save_fl.replace('.npy','')
-                    Xh = np.load(save_fl)['Xh']
-                    tzxy = drifts[iH][0]
-                    Xh[:,:3]+=tzxy# drift correction
-                    #ih = get_iH(fld) # get bit
-                    bit = -1#(ih-1)*3+icol
-                    if len(Xh):
-                        icolR = np.array([[icol,bit]]*len(Xh))
-                        #print(icolR.shape,Xh.shape)
-                        XH_ = np.concatenate([Xh,icolR],axis=-1)
-                        XH.extend(XH_)
+                    
+                    Xh = np.load(save_fl,allow_pickle=True)['Xh']
+                    if len(Xh.shape):
+                        tzxy = drifts[iH][0]
+                        Xh[:,:3]+=tzxy# drift correction
+                        #ih = get_iH(fld) # get bit
+                        bit = -1#(ih-1)*3+icol
+                        if len(Xh):
+                            icolR = np.array([[icol,bit]]*len(Xh))
+                            #print(icolR.shape,Xh.shape)
+                            XH_ = np.concatenate([Xh,icolR],axis=-1)
+                            XH.extend(XH_)
         self.Xh = np.array(XH)
             
     def plot_points(self,genes=['Olig2','Gfap'],cols=['r','g'],viewer = None):
@@ -2870,11 +2873,13 @@ def plot_statistics(dec):
     plt.title(str(np.round(np.mean(ncds[~kp])/np.mean(ncds[kp]),3)))
     plt.legend()
 def get_xyfov(dec):
-    drifts,fls,fov = pickle.load(open(dec.drift_fl,'rb'))
-    fl = fls[0]+os.sep+dec.fov.split('.')[0]+'.xml'
+    res = pickle.load(open(dec.drift_fl,'rb'))
+    #drifts,fls,fov = pickle.load(open(dec.drift_fl,'rb'))
+    fls = res[1]
+    fov = res[2]
+    fl = fls[0]+os.sep+fov.split('.')[0]+'.xml'
     txt = open(fl,'r').read()
     dec.xfov,dec.yfov = eval(txt.split('<stage_position type="custom">')[-1].split('<')[0])
-    
 def save_final_decoding(save_folder,fov,set_,scoresRef,th=-1.5,ncols=3,
                         tag_save = 'finaldecs_',
                         plt_val=False,apply_flat=True,
