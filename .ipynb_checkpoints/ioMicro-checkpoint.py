@@ -2209,10 +2209,17 @@ class decoder_simple():
                 dic_bit_to_code[bit].append(icd)
         self.dic_bit_to_code = dic_bit_to_code  ### a dictinary in which each bit is mapped to the inde of a code
 <<<<<<< HEAD
+<<<<<<< HEAD
+    def get_icodes(self,n_on_bits=4,nmin_bits=None,method = 'top4',redo=False,norm_brightness=None,nbits=48):    
+=======
+    def get_icodes(self,nmin_bits=4,method = 'top4',redo=False,norm_brightness=None,nbits=48):    
+>>>>>>> 2557eff9415d57b778245e173ada9488141a0313
+=======
     def get_icodes(self,nmin_bits=4,method = 'top4',redo=False,norm_brightness=None,nbits=48,is_unique=True):    
 =======
     def get_icodes(self,nmin_bits=4,method = 'top4',redo=False,norm_brightness=None,nbits=48):    
 >>>>>>> 990b12ef527ae4aa2dadf45099a163dc7cb0e89f
+>>>>>>> 906753f6283bdf767c268efa734c1bab8c456efd
         #### unfold res which is a list of list with clusters of loc.
         
         
@@ -2220,6 +2227,10 @@ class decoder_simple():
 
         import time
         start = time.time()
+<<<<<<< HEAD
+        if nmin_bits is None: nmin_bits = n_on_bits
+=======
+>>>>>>> 2557eff9415d57b778245e173ada9488141a0313
         res = [r for r in res if len(r)>=nmin_bits]
         #rlens = [len(r) for r in res]
         #edges = np.cumsum([0]+rlens)
@@ -2259,14 +2270,23 @@ class decoder_simple():
         if method == 'top4':
             codes = self.codes__
             vals = np.argsort(scores_bits,axis=-1)
+<<<<<<< HEAD
+            bcodes = np.sort(vals[:,-n_on_bits:],axis=-1)
+            base = [nbits**ion for ion in np.arange(n_on_bits)[::-1]]
+=======
             bcodes = np.sort(vals[:,-4:],axis=-1)
             base = [nbits**3,nbits**2,nbits**1,nbits**0]
+>>>>>>> 2557eff9415d57b778245e173ada9488141a0313
             bcodes_b = np.sum(bcodes*base,axis=1)
             codes_b = np.sum(np.sort(codes,axis=-1)*base,axis=1)
             icodesN = np.zeros(len(bcodes_b),dtype=int)-1
             for icd,cd in enumerate(codes_b):
                 icodesN[bcodes_b==cd]=icd
+<<<<<<< HEAD
+            bad = np.sum(scores_bits>0,axis=-1)<n_on_bits
+=======
             bad = np.sum(scores_bits>0,axis=-1)<4
+>>>>>>> 2557eff9415d57b778245e173ada9488141a0313
             
             icodesN[bad]=-1
             igood = np.where(icodesN>-1)[0]
@@ -3197,4 +3217,8 @@ def new_segmentation(fl =r'\\192.168.0.100\bbfish100\DCBBL1_4week_6_2_2023\H1_ME
         shape = np.array(im[-1].shape)
         np.savez_compressed(save_fl,segm = masks,shape = shape)
     return save_fl
+<<<<<<< HEAD
+>>>>>>> 2557eff9415d57b778245e173ada9488141a0313
+=======
 >>>>>>> 990b12ef527ae4aa2dadf45099a163dc7cb0e89f
+>>>>>>> 906753f6283bdf767c268efa734c1bab8c456efd
