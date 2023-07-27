@@ -1,15 +1,15 @@
 
-#activate cellpose&&python C:\Scripts\NMERFISH\Human\workerScope3A_HttHuman_Snonia__06_12_2023_P1G2_V2.py
+#activate napari&&python "C:\Scripts\NMERFISH\worker_Scope3__XXBB.py" #
 
-master_analysis_folder = r'C:\Scripts\NMERFISH'
-lib_fl = r'C:\Scripts\NMERFISH\codebooks\codebook_Sonia2colorP1_group2_blank.csv'
+master_analysis_folder = r'C:\Scripts\NMERFISH' ## where the code libes
+lib_fl = r'C:\Scripts\NMERFISH\codebooks\blank_codebook_Mahsa_DevP5P6-code_color2__comb16-4-4.csv' ### codebook
 ### Did you compute PSF and median flat field images?
 psf_file = r'C:\Scripts\NMERFISH\psfs\psf_750_Scope3_final.npy'
-master_data_folder = r'\\192.168.0.21\bbfishdc21\HttHuman_Snonia__06_12_2023'
-#master_data_folder = r'\\192.168.0.96\bbfish124\HttHuman_Snonia__06_12_2023'
-save_folder =r'\\192.168.0.21\bbfishdc21\HttHuman_Snonia__06_12_2023\MERFISH_Analysis_group2'
-iHm=13
-iHM=24
+master_data_folders = [r'\\192.168.0.100\bbfish100\XXBBL1_05_26_2023_Scope3BB']
+#save_folder =r'\\192.168.0.7\bbfishmahsa3\CGBB_embryo_4_28_2023\MERFISH_AnalysisP12'
+save_folder =r'\\192.168.0.100\bbfish100\XXBBL1_05_26_2023_Scope3BB\MERFISH_Analysis'
+iHm=1+16*2 #H iHmin -> H iHmax oly keeps folders of the the form H33,H34...
+iHM=16*3
 
 from multiprocessing import Pool, TimeoutError
 import time,sys
@@ -118,15 +118,16 @@ def compute_fits(save_folder,fov,all_flds,redo=False,ncols=4,
                     main_do_compute_fits(save_folder,fld,fov,icol,save_fl,psf,old_method)                   
 def compute_decoding(save_folder,fov,set_,redo=False):
     dec = decoder_simple(save_folder,fov,set_)
+    #self.decoded_fl = self.decoded_fl.replace('decoded_','decodedNew_')
     complete = dec.check_is_complete()
     if complete==0 or redo:
         #compute_drift(save_folder,fov,all_flds,set_,redo=False,gpu=False)
         dec = decoder_simple(save_folder,fov=fov,set_=set_)
-        dec.get_XH(fov,set_,ncols=2,nbits=12,th_h=5000)#number of colors match 
+        dec.get_XH(fov,set_,ncols=3,nbits=16,th_h=5000)#number of colors match ######################################################## Could change for speed.
         dec.XH = dec.XH[dec.XH[:,-4]>0.25] ### keep the spots that are correlated with the expected PSF for 60X
         dec.load_library(lib_fl,nblanks=-1)
         
-        dec.ncols = 2
+        dec.ncols = 3
         if False:
             dec.XH_save = dec.XH.copy()
             keep_best_N_for_each_Readout(dec,Nkeep = 15000)
@@ -139,7 +140,7 @@ def compute_decoding(save_folder,fov,set_,redo=False):
         #dec.get_inters(dinstance_th=2,enforce_color=True)# enforce_color=False
         dec.get_inters(dinstance_th=2,nmin_bits=4,enforce_color=True,redo=True)
         #dec.get_icodes(nmin_bits=4,method = 'top4',norm_brightness=None,nbits=24)#,is_unique=False)
-        get_icodesV2(dec,nmin_bits=4,delta_bits=None,iH=-3,redo=False,norm_brightness=False,nbits=24,is_unique=True)
+        get_icodesV2(dec,nmin_bits=4,delta_bits=None,iH=-3,redo=False,norm_brightness=False,nbits=48,is_unique=True)
 
 def get_iH(fld): 
     try:
@@ -148,13 +149,15 @@ def get_iH(fld):
         return np.inf
 
 def get_files(set_ifov,iHm=iHm,iHM=iHM):
-    master_folder = master_data_folder
+    
     
     if not os.path.exists(save_folder): os.makedirs(save_folder)
-        
-    #all_flds = glob.glob(r'\\192.168.0.6\bbfishjoy4\CGBB_embryo_4_28_2023\H*MER_*')
-    all_flds = glob.glob(master_folder+r'\H*MER2col_*')
-    all_flds += glob.glob(master_folder+r'\P*')
+    
+    #master_folder = master_data_folder
+    for master_folder in master_data_folders:
+        #all_flds = glob.glob(r'\\192.168.0.6\bbfishjoy4\CGBB_embryo_4_28_2023\H*MER_*')
+        all_flds = glob.glob(master_folder+r'\H*MER*')
+    #all_flds += glob.glob(master_folder+r'\P*')
     
     ### reorder based on hybe
     all_flds = np.array(all_flds)[np.argsort([get_iH(fld)for fld in all_flds])] 
@@ -187,7 +190,7 @@ def compute_main_f(save_folder,all_flds,fov,set_,ifov,redo_fits,redo_drift,redo_
     compute_drift(save_folder,fov,all_flds,set_,redo=redo_drift)
     compute_decoding(save_folder,fov,set_,redo=redo_decoding)
 
-def main_f(set_ifov,redo_fits = False,redo_drift=False,redo_decoding=True,try_mode=True,old_method=False):
+def main_f(set_ifov,redo_fits = False,redo_drift=False,redo_decoding=False,try_mode=True,old_method=False):
     set_,ifov = set_ifov
     save_folder,all_flds,fov = get_files(set_ifov)
     
@@ -202,15 +205,14 @@ def main_f(set_ifov,redo_fits = False,redo_drift=False,redo_decoding=True,try_mo
     return set_ifov
     
     
-   
+    
 if __name__ == '__main__':
     # start 4 worker processes
-    items = [(set_,ifov)for set_ in ['_set1','_set2','_set3','_set4','_set5']
-                        for ifov in range(100)]
-                        
-    main_f(['_set1',30],try_mode=False)
+    items = [(set_,ifov)for set_ in ['_D7','_D9','_D13','_D14','_D16'][::-1]#['_set1','_set2','_set3']
+                        for ifov in range(1000)]
+                                      
+    main_f(['_D16',59],try_mode=False)
     if True:
         with Pool(processes=3) as pool:
             print('starting pool')
             result = pool.map(main_f, items)
-    
