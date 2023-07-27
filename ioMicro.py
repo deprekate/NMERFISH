@@ -2094,8 +2094,8 @@ class decoder_simple():
         self.save_folder = save_folder
         self.fov,self.set_ = fov,set_
         save_folder = self.save_folder
-        self.decoded_fl = save_folder+os.sep+'decoded_'+fov.split('.')[0]+'--'+set_+'.npz'
-        self.drift_fl = save_folder+os.sep+'drift_'+fov.split('.')[0]+'--'+set_+'.pkl'
+        self.decoded_fl = save_folder+os.sep+'decodedNew_'+fov.split('.')[0]+'--'+set_+'.npz'
+        self.drift_fl = save_folder+os.sep+'driftNew_'+fov.split('.')[0]+'--'+set_+'.pkl'
     def check_is_complete(self):
         if os.path.exists(self.decoded_fl):
             print("Completed")
@@ -2114,7 +2114,6 @@ class decoder_simple():
         self.set_ = set_
         save_folder = self.save_folder
         drift_fl = save_folder+os.sep+'driftNew_'+fov.split('.')[0]+'--'+set_+'.pkl'
-
         if os.path.exists(drift_fl):
             drifts,all_flds,fov,fl_ref = pickle.load(open(drift_fl,'rb'))
             self.drifts,self.all_flds,self.fov,self.fl_ref = drifts,all_flds,fov,fl_ref
@@ -2122,7 +2121,6 @@ class decoder_simple():
             drift_fl = save_folder+os.sep+'driftNew_'+fov.split('.')[0]+'--'+set_+'.pkl'
             drifts,all_flds,fov = pickle.load(open(drift_fl,'rb'))
             self.drifts,self.all_flds,self.fov = drifts,all_flds,fov
-
 
         XH = []
         for iH in tqdm(np.arange(len(all_flds))):
@@ -2132,16 +2130,17 @@ class decoder_simple():
                     tag = os.path.basename(fld)
                     save_fl = save_folder+os.sep+fov.split('.')[0]+'--'+tag+'--col'+str(icol)+'__Xhfits.npy.npz'
                     if not os.path.exists(save_fl):save_fl = save_fl.replace('.npy','')
-                    Xh = np.load(save_fl)['Xh']
-                    Xh = Xh[Xh[:,-1]>th_h]
-                    tzxy = drifts[iH][0]
-                    Xh[:,:3]+=tzxy# drift correction
-                    ih = get_iH(fld) # get bit
-                    is_low = 'low' in tag
-                    bit = ((ih-1)%nbits)*ncols+icol+0.5*is_low
-                    icolR = np.array([[icol,bit]]*len(Xh))
-                    XH_ = np.concatenate([Xh,icolR],axis=-1)
-                    XH.extend(XH_)
+                    Xh = np.load(save_fl,allow_pickle=True)['Xh']
+                    if len(Xh.shape):
+                        Xh = Xh[Xh[:,-1]>th_h]
+                        tzxy = drifts[iH][0]
+                        Xh[:,:3]+=tzxy# drift correction
+                        ih = get_iH(fld) # get bit
+                        is_low = 'low' in tag
+                        bit = ((ih-1)%nbits)*ncols+icol+0.5*is_low
+                        icolR = np.array([[icol,bit]]*len(Xh))
+                        XH_ = np.concatenate([Xh,icolR],axis=-1)
+                        XH.extend(XH_)
         self.XH = np.array(XH)
     def get_inters(self,dinstance_th=2,enforce_color=False):
         """Get an initial intersection of points and save in self.res"""
@@ -2245,6 +2244,7 @@ class decoder_simple():
                 if bit not in dic_bit_to_code: dic_bit_to_code[bit]=[]
                 dic_bit_to_code[bit].append(icd)
         self.dic_bit_to_code = dic_bit_to_code  ### a dictinary in which each bit is mapped to the inde of a code
+
     def get_icodes(self,nmin_bits=4,method = 'top4',redo=False,norm_brightness=None,nbits=48,is_unique=True):    
         #### unfold res which is a list of list with clusters of loc.
         
@@ -2253,6 +2253,7 @@ class decoder_simple():
 
         import time
         start = time.time()
+        n_on_bits = nmin_bits
         res = [r for r in res if len(r)>=nmin_bits]
         #rlens = [len(r) for r in res]
         #edges = np.cumsum([0]+rlens)
@@ -2292,14 +2293,14 @@ class decoder_simple():
         if method == 'top4':
             codes = self.codes__
             vals = np.argsort(scores_bits,axis=-1)
-            bcodes = np.sort(vals[:,-4:],axis=-1)
-            base = [nbits**3,nbits**2,nbits**1,nbits**0]
+            bcodes = np.sort(vals[:,-n_on_bits:],axis=-1)
+            base = [nbits**ion for ion in np.arange(n_on_bits)[::-1]]
             bcodes_b = np.sum(bcodes*base,axis=1)
             codes_b = np.sum(np.sort(codes,axis=-1)*base,axis=1)
             icodesN = np.zeros(len(bcodes_b),dtype=int)-1
             for icd,cd in enumerate(codes_b):
                 icodesN[bcodes_b==cd]=icd
-            bad = np.sum(scores_bits>0,axis=-1)<4
+            bad = np.sum(scores_bits>0,axis=-1)<n_on_bits
             
             icodesN[bad]=-1
             igood = np.where(icodesN>-1)[0]
@@ -2320,7 +2321,6 @@ class decoder_simple():
         if is_unique:
             import time
             start = time.time()
-
 
             mean_scores = np.mean(scores_prunedN,axis=-1)
             ordered_mols = np.argsort(mean_scores)[::-1]
@@ -2347,7 +2347,7 @@ class decoder_simple():
     def load_decoded(self):
         import time
         start= time.time()
-        self.decoded_fl = self.save_folder+os.sep+'decoded_'+self.fov.split('.')[0]+'--'+self.set_+'.npz'
+        self.decoded_fl = self.save_folder+os.sep+'decodedNew_'+self.fov.split('.')[0]+'--'+self.set_+'.npz'
         if os.path.exists(self.decoded_fl):
             self.XH_pruned = np.load(self.decoded_fl)['XH_pruned']
             self.icodesN = np.load(self.decoded_fl)['icodesN']
@@ -2394,16 +2394,18 @@ class decoder_simple():
                     tag = os.path.basename(fld)
                     save_fl = save_folder+os.sep+fov.split('.')[0]+'--'+tag+'--col'+str(icol)+'__Xhfits.npy.npz'
                     if not os.path.exists(save_fl):save_fl = save_fl.replace('.npy','')
-                    Xh = np.load(save_fl)['Xh']
-                    tzxy = drifts[iH][0]
-                    Xh[:,:3]+=tzxy# drift correction
-                    #ih = get_iH(fld) # get bit
-                    bit = -1#(ih-1)*3+icol
-                    if len(Xh):
-                        icolR = np.array([[icol,bit]]*len(Xh))
-                        #print(icolR.shape,Xh.shape)
-                        XH_ = np.concatenate([Xh,icolR],axis=-1)
-                        XH.extend(XH_)
+                    
+                    Xh = np.load(save_fl,allow_pickle=True)['Xh']
+                    if len(Xh.shape):
+                        tzxy = drifts[iH][0]
+                        Xh[:,:3]+=tzxy# drift correction
+                        #ih = get_iH(fld) # get bit
+                        bit = -1#(ih-1)*3+icol
+                        if len(Xh):
+                            icolR = np.array([[icol,bit]]*len(Xh))
+                            #print(icolR.shape,Xh.shape)
+                            XH_ = np.concatenate([Xh,icolR],axis=-1)
+                            XH.extend(XH_)
         self.Xh = np.array(XH)
             
     def plot_points(self,genes=['Olig2','Gfap'],cols=['r','g'],viewer = None):
@@ -2871,11 +2873,13 @@ def plot_statistics(dec):
     plt.title(str(np.round(np.mean(ncds[~kp])/np.mean(ncds[kp]),3)))
     plt.legend()
 def get_xyfov(dec):
-    drifts,fls,fov = pickle.load(open(dec.drift_fl,'rb'))
-    fl = fls[0]+os.sep+dec.fov.split('.')[0]+'.xml'
+    res = pickle.load(open(dec.drift_fl,'rb'))
+    #drifts,fls,fov = pickle.load(open(dec.drift_fl,'rb'))
+    fls = res[1]
+    fov = res[2]
+    fl = fls[0]+os.sep+fov.split('.')[0]+'.xml'
     txt = open(fl,'r').read()
     dec.xfov,dec.yfov = eval(txt.split('<stage_position type="custom">')[-1].split('<')[0])
-    
 def save_final_decoding(save_folder,fov,set_,scoresRef,th=-1.5,ncols=3,
                         tag_save = 'finaldecs_',
                         plt_val=False,apply_flat=True,
@@ -3213,7 +3217,6 @@ def stitch3d_new(im_segm,minsz = 600/3,maxsz=600*3,th_int=0.75,th_cover=0.8,th_m
     
     im_segm_u_exp = expand_segmentation(im_segm_u__,nexpand=nexpand)
     return im_segm_u_exp
-
 def new_segmentation(fl =r'\\192.168.0.100\bbfish100\DCBBL1_4week_6_2_2023\H1_MER_set1\Conv_zscan__030.zarr',
                      psf_file = '\\\\192.168.0.100\\bbfish100\\DCBBL1_4week_6_2_2023\\MERFISH_Analysis\\psf_750_Scope3_final.npy',
                      p1=-500,p99=1500,mean_dapi = None,sdapi = 100,
@@ -3399,6 +3402,7 @@ def get_scdata(dfR,cell_dfR,genes_prev=None,th_vol = 2500,pixel_size=0.10833*4):
     #sc.tl.umap(scdata2,random_state=9)
     sc.pp.pca(scdata2)
     return scdata2
+    
 
 def normalize_ims(im0,zm=5,zM=50):
     imn = np.array([cv2.blur(im_,(zm,zm))-cv2.blur(im_,(zM,zM)) for im_ in im0])
@@ -3454,7 +3458,6 @@ def get_best_drift(XB1_,XB2_,exp_drift,th_d = 5):
     drft_minus = np.mean((XB2__-XB1__),axis=0)
     return drft_minus,pair_minus
 class fine_drift:
-
     def __init__(self,fl_ref,fl,verbose=True,sz_block=600):
         self.sz_block=sz_block
         self.verbose=verbose
@@ -3475,7 +3478,6 @@ class fine_drift:
             self.XB2_minus,self.XB2_plus = self.get_X_plus_minus(self.im)
             if self.verbose: print("Finding rough drift...")
             self.drift = get_txyz(self.im_ref,self.im,sz_norm=30,sz=self.sz_block)
-
             self.exp_drift = self.drift[0]
             if self.verbose: print("Finding fine drift...")
             self.drft_minus,self.pair_minus = get_best_drift(self.XB1_minus,self.XB2_minus,self.exp_drift,5)
@@ -3495,7 +3497,6 @@ class fine_drift:
         XB1 = get_XB(im1n,th=2.5)
         XB1_plus = get_max_min(XB1,im1n,delta_fit=7,ismax=True,return_ims=False)
         return XB1_minus,XB1_plus
-
 import torch
 def unique(x, dim=None):
     """Unique elements of x and indices of those unique elements
@@ -3690,4 +3691,3 @@ def get_icodesV2(dec,nmin_bits=4,delta_bits=None,iH=-3,redo=False,norm_brightnes
     dec.icodesN=icodesN.numpy()
     np.savez_compressed(dec.decoded_fl,XH_pruned=dec.XH_pruned,icodesN=dec.icodesN,gns_names = np.array(dec.gns_names),is_unique=is_unique)
     print("Total time best bits per molecule:",time.time()-start)
-
