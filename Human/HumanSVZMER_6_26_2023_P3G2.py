@@ -202,7 +202,6 @@ def main_f(set_ifov,redo_fits = False,redo_drift=False,redo_decoding=False,try_m
     return set_ifov
     
     
-    
 if __name__ == '__main__':
     # start 4 worker processes
     ifovs = [264,265,266,275,276,277,279,280,281,
@@ -210,12 +209,13 @@ if __name__ == '__main__':
  257,269,270,271,272,285,284,309,310,
  256,251,250,249,287,286,307,308,220,305,304,224,226,225,210,211,209,195,196,180,183,180,181,176,
  8,9,13,12,14,42,16,40,41,38,39,45,37,47,46,48,57,56,52]
+    ifovs  = [177, 178, 179, 182, 188, 194, 197, 198, 199, 200, 201, 202, 203, 204, 205, 206, 207, 208, 212, 213, 214, 221, 222, 223, 227, 228, 229, 230, 231, 232, 233, 234, 235, 236, 237, 238, 239, 240, 241, 242, 243, 244, 245, 246, 247, 248, 252, 253, 254, 255, 258, 259, 260, 261, 262, 288, 289, 290, 291, 292, 293, 294, 295, 296, 297, 298, 299, 300, 301, 302, 303, 306]
     items = [(set_,ifov)for set_ in ['_set1']#['_set1','_set2','_set3']
                         for ifov in ifovs]
                         
     main_f(['_set1',182],try_mode=False)
-    if False:
-        with Pool(processes=2) as pool:
+    if True:
+        with Pool(processes=1) as pool:
             print('starting pool')
             result = pool.map(main_f, items)
 #activate napari&&python C:\Scripts\NMERFISH\Human\HumanSVZMER_6_26_2023_P3G2.py
