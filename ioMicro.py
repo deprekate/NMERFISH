@@ -2131,16 +2131,18 @@ class decoder_simple():
                     save_fl = save_folder+os.sep+fov.split('.')[0]+'--'+tag+'--col'+str(icol)+'__Xhfits.npy.npz'
                     if not os.path.exists(save_fl):save_fl = save_fl.replace('.npy','')
                     Xh = np.load(save_fl,allow_pickle=True)['Xh']
+                    print(Xh.shape)
                     if len(Xh.shape):
                         Xh = Xh[Xh[:,-1]>th_h]
-                        tzxy = drifts[iH][0]
-                        Xh[:,:3]+=tzxy# drift correction
-                        ih = get_iH(fld) # get bit
-                        is_low = 'low' in tag
-                        bit = ((ih-1)%nbits)*ncols+icol+0.5*is_low
-                        icolR = np.array([[icol,bit]]*len(Xh))
-                        XH_ = np.concatenate([Xh,icolR],axis=-1)
-                        XH.extend(XH_)
+                        if len(Xh):
+                            tzxy = drifts[iH][0]
+                            Xh[:,:3]+=tzxy# drift correction
+                            ih = get_iH(fld) # get bit
+                            is_low = 'low' in tag
+                            bit = ((ih-1)%nbits)*ncols+icol+0.5*is_low
+                            icolR = np.array([[icol,bit]]*len(Xh))
+                            XH_ = np.concatenate([Xh,icolR],axis=-1)
+                            XH.extend(XH_)
         self.XH = np.array(XH)
     def get_inters(self,dinstance_th=2,enforce_color=False):
         """Get an initial intersection of points and save in self.res"""
@@ -2348,6 +2350,8 @@ class decoder_simple():
         import time
         start= time.time()
         self.decoded_fl = self.save_folder+os.sep+'decodedNew_'+self.fov.split('.')[0]+'--'+self.set_+'.npz'
+        if not os.path.exists(self.decoded_fl):
+            self.decoded_fl = self.save_folder+os.sep+'decoded_'+self.fov.split('.')[0]+'--'+self.set_+'.npz'
         if os.path.exists(self.decoded_fl):
             self.XH_pruned = np.load(self.decoded_fl)['XH_pruned']
             self.icodesN = np.load(self.decoded_fl)['icodesN']
@@ -2518,7 +2522,7 @@ def get_score_per_color(dec):
     score = np.sort(score,axis=0)
     return [score[dec.XH_pruned[:,0,-2]==icol] for icol in np.arange(dec.ncols)]
     
-def get_score_withRef(dec,scoresRef,plt_val=False,gene=None,iSs=None):
+def get_score_withRef(dec,scoresRef,plt_val=False,gene=None,iSs=None,th_min=-np.inf):
     H = np.median(dec.XH_pruned[...,-3],axis=1)
     D = dec.XH_pruned[...,:3]-np.mean(dec.XH_pruned[...,:3],axis=1)[:,np.newaxis]
     D = np.mean(np.linalg.norm(D,axis=-1),axis=-1)
@@ -2542,11 +2546,12 @@ def get_score_withRef(dec,scoresRef,plt_val=False,gene=None,iSs=None):
         is_good_gn = np.in1d(dec.icodesN,good_igns)
         
         plt.figure()
-        plt.hist(scoreA[is_good_gn],density=True,bins=100,alpha=0.5,label='all genes')
+        kp = scoreA>th_min
+        plt.hist(scoreA[(is_good_gn)&kp],density=True,bins=100,alpha=0.5,label='all genes')
         if gene is not None:
             is_gn = dec.icodesN==(list(dec.gns_names).index(gene))
-            plt.hist(scoreA[is_gn],density=True,bins=100,alpha=0.5,label=gene)
-        plt.hist(scoreA[~is_good_gn],density=True,bins=100,alpha=0.5,label='blanks');
+            plt.hist(scoreA[(is_gn)&kp],density=True,bins=100,alpha=0.5,label=gene)
+        plt.hist(scoreA[(~is_good_gn)&kp],density=True,bins=100,alpha=0.5,label='blanks');
         plt.legend()
 def get_scores(dec,plt_val=True,gene='Ptbp1'):
     H = np.median(dec.XH_pruned[...,4],axis=1)
@@ -3691,3 +3696,121 @@ def get_icodesV2(dec,nmin_bits=4,delta_bits=None,iH=-3,redo=False,norm_brightnes
     dec.icodesN=icodesN.numpy()
     np.savez_compressed(dec.decoded_fl,XH_pruned=dec.XH_pruned,icodesN=dec.icodesN,gns_names = np.array(dec.gns_names),is_unique=is_unique)
     print("Total time best bits per molecule:",time.time()-start)
+def get_xy(fld_ref = r'\\192.168.0.21\bbfishdc21\HttHuman_Snonia__06_12_2023\H0_',set_ = '_set1'):
+    fls = np.sort(glob.glob(fld_ref+set_+r'\*.zarr'))
+    xys = []
+    for fl in tqdm(fls):
+        txt = open(fl.replace('.zarr','.xml'),'r').read()
+        xy = eval(txt.split('<stage_position type="custom">')[-1].split('<')[0])
+        xys.append(xy)
+    fovs = [os.path.basename(fl).split('.')[0] for fl in fls]
+    return np.array(xys),np.array(fovs)
+def get_connected_cells_neigh_fovs(im1,im2,th_int = 0.5,reduce=10**5,ifov=0):
+    
+    im1_ = np.array(im1,dtype=int)
+    im2_ = np.array(im2,dtype=int)
+    im1_o = im1_.copy()
+    im2_o = im2_.copy()
+    #if reduce is not None:
+    im1_ = im1_%reduce
+    im2_ = im2_%reduce
+    es1 = np.unique(im1_)
+    im1_ = replace_mat(im1_,es1,np.arange(len(es1)))
+    es2 = np.unique(im2_)
+    im2_ = replace_mat(im2_,es2,np.arange(len(es2)))
+    
+    N1max = np.max(im1_)+1
+    N2max = np.max(im2_)+1
+    Nmax = np.max([N1max,N2max])
+    im2_ = im2_*N1max
+    
+    c1,cts1 = np.unique(im1_,return_counts=True)
+    dic_c1 = {c_:ct_ for c_,ct_ in zip(c1,cts1)}
+    c2,cts2 = np.unique(im2_,return_counts=True)
+    dic_c2 = {c_:ct_ for c_,ct_ in zip(c2,cts2)}
+
+    iint,cts = np.unique(im1_+im2_,return_counts=True)
+    edges = []
+    for iint_,ct in zip(iint,cts):
+        c1 = iint_%N1max
+        c2 = iint_-c1
+        c2_ = c2//N1max
+        if c1>0 and c2>0:
+            ic1,ic2 = (ct/dic_c1[c1],ct/dic_c2[c2])
+            if ic1>th_int or ic2>th_int:
+                edges.append((c1,c2))
+    
+    
+    
+    edges = np.array(edges)
+    
+    im1_start = im1_.copy()
+    #im2_start = im2_.copy()
+    if len(edges):
+        new_vals = np.arange(len(edges))+Nmax
+        im1_ = replace_mat(im1_,edges[:,0],new_vals)
+        im2_ = replace_mat(im2_,edges[:,1],new_vals)
+    imf = np.max([im1_,im2_],axis=0)
+    keep = im1_start!=imf
+    im1_o[keep]=imf[keep]+ifov*reduce ###reduce
+    #(im1_start!=im1_)|(im2_start!=im2_)
+    
+    return im1_o
+    
+def plot_cluster_scdata(scdata,cmap,clusters=[1,2],transpose=1,flipx=1,flipy=1,sbig=30,small=5):
+    import matplotlib.pyplot as plt
+    fig = plt.figure(figsize=(10, 10), facecolor="black")
+
+    from matplotlib import pylab as plt
+    x,y = (scdata.obsm['X_spatial']*[-flipx,-flipy])[:,::-transpose].T
+    
+    #np.unique(scdata.obs["leiden"].astype(np.int))[::-1]
+    plt.scatter(x, y, c='gray', s=small, marker='.')
+    for cluster in clusters:
+        cluster_ = str(cluster)
+        inds = scdata.obs["leiden"] == cluster_
+        x_ = x[inds]
+        y_ = y[inds]
+        col = cmap[int(cluster) % len(cmap)]
+        plt.scatter(x_, y_, c=col, s=sbig, marker='.',label = cluster_)
+    
+    plt.grid(False)
+    plt.axis("off")
+    plt.axis("equal")
+    plt.legend()
+    plt.tight_layout()
+    return fig
+def plot_gene_scdata(scdata2,gene='SOX9',nmax=20,sz_min=5,sz_max=30,transpose=1,flipx=1,flipy=1,tag='X_spatial'):
+    Xcells = scdata2.obsm[tag][:,::transpose]*[flipx,flipy]
+    ign = list(scdata2.var.index).index(gene)
+    #scdata2.obsm['X_umap']
+    if 'X_raw' not in scdata2.obsm:
+        Xnorm = (np.exp(scdata2.X)-1)
+        ncts = np.sum(Xnorm,axis=1)[0]
+        scdata2.obsm['X_raw']=np.round(Xnorm/ncts*np.array(scdata2.obs['total_counts'])[:,np.newaxis])
+    cts = scdata2.obsm['X_raw'][:,ign].copy()
+    plt.style.use("dark_background")
+    cts[np.isnan(cts)]=0
+    #cts[cts>20]=0
+    ncts = np.clip(cts/nmax,0,1)
+    size = sz_min+ncts*(sz_max-sz_min)
+    from matplotlib import cm as cmap
+    cols = cmap.coolwarm(ncts)
+
+    good_cells = slice(None)
+    good_cells = np.argsort(cts)
+
+    #blanks = [gn for gn in df.columns if 'blank' in gn]
+    #blanks_cts = np.nanmean(df[blanks],axis=-1)
+    #good_cells = blanks_cts<th_blank
+
+    XC = -Xcells[good_cells,::-1]
+    #viewer = napari.view_points(XC,size=size[good_cells],face_color=cols[good_cells],name=gene)
+    fig = plt.figure(facecolor='k')
+    plt.title(gene+' - N max '+str(nmax))
+    fig.set_facecolor('black')
+    plt.scatter(XC[:,0],XC[:,1],c=cols[good_cells],s=size[good_cells])
+    plt.grid(False)
+    plt.xticks([])
+    plt.yticks([])
+    return fig
