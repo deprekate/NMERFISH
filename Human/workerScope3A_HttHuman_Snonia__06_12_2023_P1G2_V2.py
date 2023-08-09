@@ -208,8 +208,8 @@ if __name__ == '__main__':
     items = [(set_,ifov)for set_ in ['_set1','_set2','_set3','_set4','_set5']
                         for ifov in range(100)]
                         
-    main_f(['_set1',30],try_mode=False)
-    if True:
+    main_f(['_set1',2],try_mode=False)
+    if False:
         with Pool(processes=3) as pool:
             print('starting pool')
             result = pool.map(main_f, items)

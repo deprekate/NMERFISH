@@ -187,7 +187,7 @@ def compute_main_f(save_folder,all_flds,fov,set_,ifov,redo_fits,redo_drift,redo_
     compute_drift(save_folder,fov,all_flds,set_,redo=redo_drift)
     compute_decoding(save_folder,fov,set_,redo=redo_decoding)
 
-def main_f(set_ifov,redo_fits = False,redo_drift=False,redo_decoding=True,try_mode=True,old_method=False):
+def main_f(set_ifov,redo_fits = False,redo_drift=False,redo_decoding=False,try_mode=True,old_method=False):
     set_,ifov = set_ifov
     save_folder,all_flds,fov = get_files(set_ifov)
     
@@ -205,7 +205,7 @@ def main_f(set_ifov,redo_fits = False,redo_drift=False,redo_decoding=True,try_mo
     
 if __name__ == '__main__':
     # start 4 worker processes
-    items = [(set_,ifov)for set_ in ['_set5']#['_set1','_set2','_set3']
+    items = [(set_,ifov)for set_ in ['_set1','_set2','_set3','_set4','_set5']
                         for ifov in range(100)]
                         
     main_f(['_set5',30])
