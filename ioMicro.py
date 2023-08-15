@@ -2190,7 +2190,8 @@ class decoder_simple():
             print("Saving to file:",self.res_fl)
             self.res_unfolder=res_unfolder
             self.lens=lens
-            np.savez(self.res_fl,res_unfolder=res_unfolder,lens=lens)
+            
+            #np.savez(self.res_fl,res_unfolder=res_unfolder,lens=lens)
         else:
             dic = np.load(self.res_fl)
             self.res_unfolder=dic['res_unfolder']
