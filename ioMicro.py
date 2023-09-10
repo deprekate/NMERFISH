@@ -3815,3 +3815,341 @@ def plot_gene_scdata(scdata2,gene='SOX9',nmax=20,sz_min=5,sz_max=30,transpose=1,
     plt.xticks([])
     plt.yticks([])
     return fig
+    
+    
+class get_dapi_features:
+    def __init__(self,fl,save_folder,set_='',gpu=True,im_med_fl = r'D:\Carlos\Scripts\flat_field\lemon__med_col_raw3.npz',
+                psf_fl = r'D:\Carlos\Scripts\psfs\psf_647_Kiwi.npy',redo=False):
+                
+        """
+        Given a file <fl> and a save folder <save_folder> this class will load the image fl, flat field correct it, it deconvolves it using <psf_fl> and then finds the local minimum and maximum.
+        
+        This saves data in: save_folder+os.sep+fov+'--'+htag+'--dapiFeatures.npz' which contains the local maxima: Xh_plus and local minima: Xh_min 
+        """
+        htag = os.path.basename(os.path.dirname(fl))
+        fov = os.path.basename(os.path.splitext(fl)[0])
+
+        self.gpu=gpu
+        
+        self.fl,self.fl_ref='',''
+        self.im_med=None
+        self.im_med_fl=im_med_fl
+        
+        
+        self.save_fl = save_folder+os.sep+fov+'--'+htag+'--'+set_+'dapiFeatures.npz'
+        self.fl = fl
+        if not os.path.exists(self.save_fl) or redo:
+            self.psf = np.load(psf_fl)
+            if im_med_fl is not None:
+                im_med = np.load(im_med_fl)['im']
+                im_med = cv2.blur(im_med,(20,20))
+                self.im_med=im_med
+            self.load_im()
+            self.get_X_plus_minus()
+            np.savez(self.save_fl,Xh_plus = self.Xh_plus,Xh_minus = self.Xh_minus)
+        else:
+            dic = np.load(self.save_fl)
+            self.Xh_minus,self.Xh_plus = dic['Xh_minus'],dic['Xh_plus']
+    def load_im(self):
+        """
+        Load the image from file fl and apply: flat field, deconvolve, subtract local background and normalize by std
+        """
+        im = np.array(read_im(self.fl)[-1],dtype=np.float32)
+        if self.im_med_fl is not None:
+            im = im/self.im_med*np.median(self.im_med)
+        imD = full_deconv(im,psf=self.psf,gpu=self.gpu)
+        imDn = norm_slice(imD,s=30)
+        imDn_ = imDn/np.std(imDn)
+        self.im = imDn_
+    def get_X_plus_minus(self):
+        #load dapi
+        im1 = self.im
+        self.Xh_plus = get_local_maxfast_tensor(im1,th_fit=4.5,delta=5,delta_fit=5)
+        self.Xh_minus = get_local_maxfast_tensor(-im1,th_fit=4.5,delta=5,delta_fit=5)
+
+
+
+def get_im_from_Xh(Xh,resc=5):
+    X = np.round(Xh[:,:3]/resc).astype(int)
+    X-=np.min(X,axis=0)
+    sz = np.max(X,axis=0)
+    imf = np.zeros(sz+1,dtype=np.float32)
+    imf[tuple(X.T)]=1
+    return imf
+def get_Xtzxy(X,X_ref,tzxy0,resc,learn=0.8):
+    tzxy = tzxy0
+    for it_ in range(5):
+        XT = X-tzxy
+        ds,inds = cKDTree(X_ref).query(XT)
+        keep = ds<resc*learn**it_
+        X_ref_ = X_ref[inds[keep]]
+        X_ = X[keep]
+        tzxy = np.mean(X_-X_ref_,axis=0)
+        #print(tzxy)
+    return tzxy
+def get_best_translation_points(X,X_ref,resc=10):
+    im = get_im_from_Xh(X,resc=resc)
+    im_ref = get_im_from_Xh(X_ref,resc=resc)
+    from scipy.signal import fftconvolve
+    im_cor = fftconvolve(im,im_ref[::-1,::-1,::-1])
+    tzxy = np.array(np.unravel_index(np.argmax(im_cor),im_cor.shape))-im.shape+1
+    tzxy = tzxy*resc
+    tzxy = get_Xtzxy(X,X_ref,tzxy)
+    return tzxy
+def load_segmentation_DNA(dec,segm_folder =  r'\\merfish8\merfish8v2\20230805_D103_Myh67_d80KO\DNA_singleCy5\AnalysisDeconvolve_CG\SegmentationDAPI_CG',tag='H1_R1',th_vol=5000):
+    dec.fl_dapi = segm_folder+os.sep+dec.fov+'--'+tag+'--CYTO_segm.npz'
+    dic = np.load(dec.fl_dapi)
+    im_segm = dic['segm']
+    dec.shape = dic['shape']
+    dec.im_segm_=im_segm
+    icells,vols = np.unique(dec.im_segm_,return_counts=True)
+    dec.im_segm_ = replace_mat(dec.im_segm_,np.where(vols<th_vol)[0],0)
+    icells,vols = np.unique(dec.im_segm_,return_counts=True)
+    dec.icells = icells[icells>0]
+    dec.cms = np.array(nd.center_of_mass(dec.im_segm_>0,dec.im_segm_,dec.icells))
+    dec.resc_segm = dec.im_segm_.shape/dec.shape
+def replace_mat(mat,vals_fr,vals_to):
+    if len(vals_fr)>0:
+        vmax = np.max(mat)+1
+        vals = np.arange(vmax)
+        vals[vals_fr]=vals_to
+        return vals[mat]
+    return mat
+def get_xy_fl(fl):
+    fl_xml = fl.replace('.zarr','.xml')
+    txt = open(fl_xml,'r').read()
+    xyfov = eval(txt.split('<stage_position type="custom">')[-1].split('<')[0])
+    return xyfov
+def load_segmentation(dec,segm_folder =  r'\\merfish8\merfish8v2\20230805_D103_Myh67_d80KO\DNA_singleCy5\AnalysisDeconvolve_CG\SegmentationDAPI_CG',tag='H1_R1',th_vol=5000):
+    dec.fl_dapi = segm_folder+os.sep+dec.fov+'--'+tag+'--CYTO_segm.npz'
+    dic = np.load(dec.fl_dapi)
+    im_segm = dic['segm']
+    dec.shape = dic['shape']
+    dec.im_segm_=im_segm
+    icells,vols = np.unique(dec.im_segm_,return_counts=True)
+    dec.im_segm_ = replace_mat(dec.im_segm_,np.where(vols<th_vol)[0],0)
+    icells,vols = np.unique(dec.im_segm_,return_counts=True)
+    dec.icells = icells[icells>0]
+    dec.cms = np.array(nd.center_of_mass(dec.im_segm_>0,dec.im_segm_,dec.icells))
+    dec.resc_segm = dec.im_segm_.shape/dec.shape
+    
+def get_best_X(cp,ifov,ifl=0,htag_ref = 'H1_R1',resc=10):
+    cp.ifov=ifov
+    fls = cp.dic_fls[ifov]
+    fl = fls[ifl]
+    cp.fl = fl
+    cp.htag_ref = htag_ref
+    cp.fov,cp.htag = os.path.basename(fl).split('--')[:2]
+    best_guess_raw_data = os.path.dirname(cp.save_folder)
+    fl_T_ref = best_guess_raw_data+os.sep+htag_ref+os.sep+cp.fov
+    fl_T = best_guess_raw_data+os.sep+cp.htag+os.sep+cp.fov
+    cp.obj = get_dapi_features(fl_T,cp.save_folder)
+    cp.obj_ref = get_dapi_features(fl_T_ref,cp.save_folder)
+
+    cp.X = cp.obj.Xh_plus[:,:3]
+    cp.X_ref = cp.obj_ref.Xh_plus[:,:3]
+    tzxy_plus = get_best_translation_points(cp.X,cp.X_ref,resc=resc)
+
+    cp.X = cp.obj.Xh_minus[:,:3]
+    cp.X_ref = cp.obj_ref.Xh_minus[:,:3]
+    tzxy_minus = get_best_translation_points(cp.X,cp.X_ref,resc=resc)
+    cp.tzxy_plus = tzxy_plus
+    cp.tzxy_minus = tzxy_minus
+    cp.tzxyf = (cp.tzxy_plus+cp.tzxy_minus)/2
+def load_Xfovs(cp,transpose=1,flipx=-1,flipy=1):
+    cp.dic_pos = np.load(cp.save_folder+os.sep+'dic_pos.pkl',allow_pickle=True)
+    cp.dic_pos = {fov:np.array(cp.dic_pos[fov])[::transpose]*[flipx,flipy] for fov in cp.dic_pos}
+    #Xfov = cp.dic_pos[cp.fov]
+    fovs = list(cp.dic_pos.keys())
+    Xfovs = np.array([cp.dic_pos[fov] for fov in fovs])
+    cp.Xfovs=Xfovs
+    cp.fovs = fovs
+def get_abs_pos_cells(cp,pix_size = 0.10833):
+    cp.center = cp.shape[1:]/2
+    cp.Xcells = (cp.cms[:,1:]/cp.resc_segm[1:]+cp.tzxyf[1:]-cp.center)*pix_size
+    cp.Xcells = cp.Xcells+cp.dic_pos[cp.fov]
+    cp.pix_size=pix_size
+    cp.dic_Xcells = dict(zip(cp.icells,cp.Xcells))
+def get_dic_fov_cells(cp):
+    """
+    This looks through all the cells in cp.im_segm_ and finds the best fov corresponding to each cell
+    Data is stored in cp.dic_fov_cells
+    """
+    Xfov = cp.dic_pos[cp.fov]
+    out_of_fov = np.any(np.abs((cp.Xcells-Xfov)/cp.pix_size)>cp.shape[1:]/2,axis=-1)
+    cp.icells_in_fov = cp.icells[~out_of_fov]
+    cp.icells_out_fov = cp.icells[out_of_fov]
+    dists,ifovs_cells = cKDTree(cp.Xfovs).query(cp.Xcells[out_of_fov])
+    ifovsE,ctsIfovs = np.unique(ifovs_cells,return_counts=True)
+    ifovsE = ifovsE[ctsIfovs>2]
+    keep_cells = np.in1d(ifovs_cells,ifovsE)
+    cp.icells_out_fov = cp.icells_out_fov[keep_cells]
+    ifovs_cells = ifovs_cells[keep_cells]
+    cp.dic_fov_cells = {cp.fovs[ifov]:cp.icells_out_fov[ifovs_cells==ifov] for ifov in ifovsE}
+    cp.dic_fov_cells[cp.fov]=cp.icells_in_fov
+
+def get_im_from_Xh(Xh,resc=5):
+    X = np.round(Xh[:,:3]/resc).astype(int)
+    Xm = np.min(X,axis=0)
+    X-=Xm
+    sz = np.max(X,axis=0)
+    imf = np.zeros(sz+1,dtype=np.float32)
+    imf[tuple(X.T)]=1
+    return imf,Xm
+def get_Xtzxy(X,X_ref,tzxy0,resc,learn=0.8):
+    tzxy = tzxy0
+    Npts =0
+    for it_ in range(5):
+        XT = X-tzxy
+        ds,inds = cKDTree(X_ref).query(XT)
+        keep = ds<resc*learn**it_
+        X_ref_ = X_ref[inds[keep]]
+        X_ = X[keep]
+        tzxy = np.mean(X_-X_ref_,axis=0)
+        #print(tzxy)
+        Npts = np.sum(keep)
+    return tzxy,Npts
+def get_best_translation_points(X,X_ref,resc=10,learn=1,return_counts=False):
+    
+    im,Xm = get_im_from_Xh(X,resc=resc)
+    im_ref,Xm_ref = get_im_from_Xh(X_ref,resc=resc)
+    
+    from scipy.signal import fftconvolve
+    im_cor = fftconvolve(im,im_ref[::-1,::-1,::-1])
+    #plt.imshow(np.max(im_cor,0))
+    tzxy = np.array(np.unravel_index(np.argmax(im_cor),im_cor.shape))-im_ref.shape+1+Xm-Xm_ref
+    tzxy = tzxy*resc
+    Npts=0
+    tzxy,Npts = get_Xtzxy(X,X_ref,tzxy,resc=resc,learn=learn)
+    if return_counts:
+        return tzxy,Npts
+    return tzxy
+
+def get_info_cp_fl(cp):
+    cp.fovT,htag,coltag = os.path.basename(cp.fl).split('--')
+    cp.icol = int(coltag.split('_')[0].replace('col',''))
+    cp.iR = int(htag.replace('_','').split('R')[cp.icol+1])-1
+    cp.ifovT = int(cp.fovT.split('_')[-1])
+def load_Xh_DNA(cp):
+    Xh = np.load(cp.fl)['Xh']
+    get_info_cp_fl(cp)
+    Xhf = None
+    for icell in cp.dic_cell_driftf:
+        drft,npts,fov_ = cp.dic_cell_driftf[icell]
+        if cp.fovT==fov_:
+            X_ = Xh[:,:3]-drft
+            Xh_red = np.round(X_*cp.resc_segm).astype(int)
+            keep_red = np.all((Xh_red<cp.im_segm_.shape)&(Xh_red>=0),axis=-1)
+            
+            icell_id_X = cp.im_segm_[tuple(Xh_red[keep_red].T)]
+            Xh_ = Xh[keep_red][icell_id_X==icell]
+            if len(Xh_):
+                Xh_E = np.concatenate([Xh_[:,:3]-drft,Xh_[:,:3],[[cp.ifovT]]*len(Xh_),Xh_[:,3:],[[cp.icol,cp.iR,icell]]*len(Xh_)],axis=-1)
+                Xhf = (Xh_E if Xhf is None else np.concatenate([Xhf,Xh_E]))
+    cp.Xhf = Xhf
+
+
+
+def get_cp_drfit(cp,fov,tzxyf):
+    """The purpose of this is to populate cp.dic_cell_driftf such that each cell has the best guess of drift"""
+    cp.fovT = fov
+    icells_fov = cp.dic_fov_cells[cp.fovT]
+    if not hasattr(cp,'dic_cell_drift_minus'):
+        cp.dic_cell_drift_minus={}
+    X = cp.obj.Xh_minus[:,:3]
+    X_ref = cp.obj_ref.Xh_minus[:,:3]
+    
+    #X = cp.obj.Xh_plus[:,:3]
+    #X_ref = cp.obj_ref.Xh_plus[:,:3]
+    
+    XT = X-tzxyf
+    X_ref_red = np.round(X_ref*cp.resc_segm).astype(int)
+    XT_red = np.round(XT*cp.resc_segm).astype(int)
+    keep_ref = np.all((X_ref_red<cp.im_segm_.shape)&(X_ref_red>=0),axis=-1)
+    keep_ld = np.all((XT_red<cp.im_segm_.shape)&(XT_red>=0),axis=-1)
+    icell_id_X = cp.im_segm_[tuple(XT_red[keep_ld].T)]
+    icell_id_Xref = cp.im_segm_[tuple(X_ref_red[keep_ref].T)]
+    
+    for icell in icells_fov:
+        tzxy = [0,0,0]
+        Npts = 0
+        XTC = XT[keep_ld][icell_id_X==icell]
+        XRC = X_ref[keep_ref][icell_id_Xref==icell]
+        if len(XTC)>0 and len(XRC)>0:
+            tzxy,Npts = get_best_translation_points(XTC,XRC,resc=5,learn=0.9,return_counts=True)
+            #print(icell,tzxy,Npts)
+        cp.tzxyf_cell = tzxyf+tzxy
+        cp.Npts = Npts
+        cp.dic_cell_drift_minus[icell]=[cp.tzxyf_cell,cp.Npts,cp.fovT]
+    
+    ####################################Plus - local maxima
+    if not hasattr(cp,'dic_cell_drift_plus'):
+        cp.dic_cell_drift_plus={}
+    X = cp.obj.Xh_plus[:,:3]
+    X_ref = cp.obj_ref.Xh_plus[:,:3]
+    
+   
+    XT = X-tzxyf
+    X_ref_red = np.round(X_ref*cp.resc_segm).astype(int)
+    XT_red = np.round(XT*cp.resc_segm).astype(int)
+    keep_ref = np.all((X_ref_red<cp.im_segm_.shape)&(X_ref_red>=0),axis=-1)
+    keep_ld = np.all((XT_red<cp.im_segm_.shape)&(XT_red>=0),axis=-1)
+    icell_id_X = cp.im_segm_[tuple(XT_red[keep_ld].T)]
+    icell_id_Xref = cp.im_segm_[tuple(X_ref_red[keep_ref].T)]
+    
+    for icell in icells_fov:
+        tzxy = [0,0,0]
+        Npts = 0
+        XTC = XT[keep_ld][icell_id_X==icell]
+        XRC = X_ref[keep_ref][icell_id_Xref==icell]
+        if len(XTC)>0 and len(XRC)>0:
+            tzxy,Npts = get_best_translation_points(XTC,XRC,resc=5,learn=0.9,return_counts=True)
+            #print(icell,tzxy,Npts)
+        cp.tzxyf_cell = tzxyf+tzxy
+        cp.Npts = Npts
+        cp.dic_cell_drift_plus[icell]=[cp.tzxyf_cell,cp.Npts,cp.fovT]
+    def combine_drft(X1n1fov,X2n2fov,ncutoff=10):
+        X1,n1,fov=X1n1fov
+        X2,n2,fov=X2n2fov
+        if n1>ncutoff and n2>ncutoff:
+            return [(X1*n1+X2*n2)/(n1+n2),n1+n2,fov]
+        else:
+            if n1>ncutoff:
+                return X1n1fov
+            if n2>ncutoff:
+                return X1n1fov
+            return [[np.nan,np.nan,np.nan],0,fov]
+
+    if not hasattr(cp,'dic_cell_driftf'):
+        cp.dic_cell_driftf={}
+    cp.dic_cell_driftf.update({icell:combine_drft(cp.dic_cell_drift_plus.get(icell,[[np.nan,np.nan,np.nan],0,cp.fovT]),
+                        cp.dic_cell_drift_minus.get(icell,[[np.nan,np.nan,np.nan],0,cp.fovT]),ncutoff=10) for icell in icells_fov})
+
+    bad_info = [(icell,cp.dic_Xcells[icell])for icell in cp.dic_cell_driftf if np.isnan(cp.dic_cell_driftf[icell][0][0])]
+    good_info  = [(icell,cp.dic_Xcells[icell])for icell in cp.dic_cell_driftf if ~np.isnan(cp.dic_cell_driftf[icell][0][0])]
+    if (len(bad_info)>0) and (len(good_info)>0):
+        bad_icells,bad_X = zip(*bad_info)
+        good_icells,good_X = zip(*good_info)
+        dsts,inds = cKDTree(good_X).query(bad_X)
+        for bad_i,good_i in zip(bad_icells,np.array(good_icells)[inds]):
+            cp.dic_cell_driftf[bad_i]=cp.dic_cell_driftf[good_i]
+
+    if False:
+        ### plot the dependence of drift on position
+        x_,y_ = zip(*[(cp.dic_cell_driftf[icell][0][2],cp.dic_Xcells[icell][1]) for icell in cp.dic_cell_driftf])
+        plt.plot(x_,y_,'o')
+def get_best_XV2(cp,resc=10):
+    best_guess_raw_data = os.path.dirname(cp.save_folder)
+    fl_T = best_guess_raw_data+os.sep+cp.htag+os.sep+cp.fovT
+    cp.obj = get_dapi_features(fl_T,cp.save_folder)
+    
+    cp.X = cp.obj.Xh_plus[:,:3]
+    cp.X_ref = cp.obj_ref.Xh_plus[:,:3]
+    tzxy_plus = get_best_translation_points(cp.X,cp.X_ref,resc=resc)
+
+    cp.X = cp.obj.Xh_minus[:,:3]
+    cp.X_ref = cp.obj_ref.Xh_minus[:,:3]
+    tzxy_minus = get_best_translation_points(cp.X,cp.X_ref,resc=resc)
+    cp.tzxy_plusT = tzxy_plus
+    cp.tzxy_minusT = tzxy_minus
+    cp.tzxyfT = (cp.tzxy_plusT+cp.tzxy_minusT)/2
