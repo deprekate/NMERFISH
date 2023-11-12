@@ -465,7 +465,7 @@ def get_txyz_small(im0_,im1_,sz_norm=10,delta=3,plt_val=False):
     txyz = np.unravel_index(np.argmin(im_cor), im_cor.shape)-np.array(im0.shape)+1
     #txyz = np.unravel_index(np.argmax(im_cor_),im_cor_.shape)+delta_
     return txyz
-def full_deconv(im_,s_=500,pad=100,psf=None,parameters={'method': 'wiener', 'beta': 0.001, 'niter': 50},gpu=True,force=False):
+def full_deconv(im_,s_=300,pad=100,psf=None,parameters={'method': 'wiener', 'beta': 0.001, 'niter': 50},gpu=True,force=False):
     im0=np.zeros_like(im_)
     sx,sy = im_.shape[1:]
     ixys = []
@@ -475,7 +475,14 @@ def full_deconv(im_,s_=500,pad=100,psf=None,parameters={'method': 'wiener', 'bet
     
     for ix,iy in tqdm(ixys):#ixys:#tqdm(ixys):
         imsm = im_[:,ix:ix+pad+s_,iy:iy+pad+s_]
-        imt = apply_deconv(imsm,psf=psf,parameters=parameters,gpu=gpu,plt_val=False,force=force)
+        if type(psf) is dict:
+            keys = list(psf.keys())
+            ikey = np.argmin(np.sum(np.abs(np.array(keys)-[0,ix,iy]),axis=-1))
+            psf_ = psf[keys[ikey]]
+            force=True
+        else:
+            psf_ = psf
+        imt = apply_deconv(imsm,psf=psf_,parameters=parameters,gpu=gpu,plt_val=False,force=force)
         start_x = ix+pad//2 if ix>0 else 0
         end_x = ix+pad//2+s_
         start_y = iy+pad//2 if iy>0 else 0
@@ -898,7 +905,7 @@ def get_local_maxfast_tensor(im_dif_npy,th_fit=500,im_raw=None,dic_psf=None,delt
     else:
         Xh =  torch.stack([z,x,y,h]).T.cpu().detach().numpy()
     return Xh
-def get_local_max_tile(im_,th=2500,s_ = 500,pad=50,psf=None,plt_val=None,snorm=30,gpu=False,deconv={'method':'wiener','beta':0.001},
+def get_local_max_tile(im_,th=2500,s_ = 300,pad=50,psf=None,plt_val=None,snorm=30,gpu=False,deconv={'method':'wiener','beta':0.001},
                         delta=1,delta_fit=3,sigmaZ=1,sigmaXY=1.5):
     sx,sy = im_.shape[1:]
     ixys = []
@@ -910,7 +917,14 @@ def get_local_max_tile(im_,th=2500,s_ = 500,pad=50,psf=None,plt_val=None,snorm=3
         imsm = im_[:,ix:ix+pad+s_,iy:iy+pad+s_]
         out_im = imsm
         if deconv is not None:
-            out_im = apply_deconv(imsm,psf=psf,plt_val=False,parameters = deconv,gpu=gpu,force=False,pad=None)
+            force = False
+            psf_ = psf
+            if type(psf) is dict:
+                force=True
+                keys = list(psf.keys())
+                ikey = np.argmin(np.sum(np.abs(np.array(keys)-[0,ix,iy]),axis=-1))
+                psf_ = psf[keys[ikey]]
+            out_im = apply_deconv(imsm,psf=psf_,plt_val=False,parameters = deconv,gpu=gpu,force=force,pad=None)
         out_im2 = norm_slice(out_im,s=snorm)
         #print(time.time()-t)
         Xh = get_local_maxfast_tensor(out_im2,th,im_raw=imsm,dic_psf=None,delta=delta,delta_fit=delta_fit,sigmaZ=sigmaZ,sigmaXY=sigmaXY,gpu=gpu)
@@ -3838,8 +3852,14 @@ class get_dapi_features:
         
         self.save_fl = save_folder+os.sep+fov+'--'+htag+'--'+set_+'dapiFeatures.npz'
         self.fl = fl
+        try:
+            if os.path.exists(self.save_fl):
+                dic = np.load(self.save_fl)
+                self.Xh_minus,self.Xh_plus = dic['Xh_minus'],dic['Xh_plus']
+        except:
+            redo = True
         if not os.path.exists(self.save_fl) or redo:
-            self.psf = np.load(psf_fl)
+            self.psf = np.load(psf_fl,allow_pickle=True)
             if im_med_fl is not None:
                 im_med = np.load(im_med_fl)['im']
                 im_med = cv2.blur(im_med,(20,20))
@@ -3847,9 +3867,7 @@ class get_dapi_features:
             self.load_im()
             self.get_X_plus_minus()
             np.savez(self.save_fl,Xh_plus = self.Xh_plus,Xh_minus = self.Xh_minus)
-        else:
-            dic = np.load(self.save_fl)
-            self.Xh_minus,self.Xh_plus = dic['Xh_minus'],dic['Xh_plus']
+            
     def load_im(self):
         """
         Load the image from file fl and apply: flat field, deconvolve, subtract local background and normalize by std
@@ -3864,8 +3882,8 @@ class get_dapi_features:
     def get_X_plus_minus(self):
         #load dapi
         im1 = self.im
-        self.Xh_plus = get_local_maxfast_tensor(im1,th_fit=4.5,delta=5,delta_fit=5)
-        self.Xh_minus = get_local_maxfast_tensor(-im1,th_fit=4.5,delta=5,delta_fit=5)
+        self.Xh_plus = get_local_maxfast_tensor(im1,th_fit=3,delta=5,delta_fit=5)
+        self.Xh_minus = get_local_maxfast_tensor(-im1,th_fit=3,delta=5,delta_fit=5)
 
 
 
