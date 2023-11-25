@@ -3852,6 +3852,7 @@ class get_dapi_features:
         
         self.save_fl = save_folder+os.sep+fov+'--'+htag+'--'+set_+'dapiFeatures.npz'
         self.fl = fl
+
         try:
             if os.path.exists(self.save_fl):
                 dic = np.load(self.save_fl)
@@ -3867,7 +3868,7 @@ class get_dapi_features:
             self.load_im()
             self.get_X_plus_minus()
             np.savez(self.save_fl,Xh_plus = self.Xh_plus,Xh_minus = self.Xh_minus)
-            
+
     def load_im(self):
         """
         Load the image from file fl and apply: flat field, deconvolve, subtract local background and normalize by std
@@ -3884,7 +3885,6 @@ class get_dapi_features:
         im1 = self.im
         self.Xh_plus = get_local_maxfast_tensor(im1,th_fit=3,delta=5,delta_fit=5)
         self.Xh_minus = get_local_maxfast_tensor(-im1,th_fit=3,delta=5,delta_fit=5)
-
 
 
 def get_im_from_Xh(Xh,resc=5):
