@@ -171,10 +171,10 @@ def compute_main_f(save_folder,all_flds,fov,set_,ifov,redo_fits,redo_drift,redo_
     print(len(all_flds),all_flds)
     compute_fits(save_folder,fov,all_flds,redo=redo_fits,try_mode=try_mode,old_method=old_method)
     print("Computing drift on: "+str(fov))
-    #compute_drift(save_folder,fov,all_flds,set_,redo=redo_drift)
+    
     compute_drift_features(save_folder,fov,all_flds,set_,redo=redo_drift,gpu=True)
-    #compute_drift_V2(save_folder,fov,all_flds,set_,redo=redo_drift,gpu=True)
-    #compute_decoding(save_folder,fov,set_,redo=redo_decoding)
+    compute_drift_V2(save_folder,fov,all_flds,set_,redo=redo_drift,gpu=True)
+    compute_decoding(save_folder,fov,set_,redo=redo_decoding)
 
     
 ############### End Code inserted here!!! ##################
@@ -213,6 +213,7 @@ if __name__ == '__main__':
        
     
     main_f(('_set2',78),redo_drift=False,redo_decoding=False,try_mode=False)
+    main_f(('_set2',378),redo_drift=False,redo_decoding=False,try_mode=False)
     if True:
         with Pool(processes=3) as pool:
             print('starting pool')
